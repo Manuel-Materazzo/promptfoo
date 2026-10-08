@@ -329,6 +329,8 @@ describe('EvalOutputCell', () => {
     await userEvent.tab();
     expect(screen.getByRole('button', { name: /edit comment/i })).toHaveFocus();
     await userEvent.tab();
+    expect(screen.getByRole('button', { name: /rerun test case/i })).toHaveFocus();
+    await userEvent.tab();
     expect(screen.getByRole('button', { name: /view output and test details/i })).toHaveFocus();
   });
 
@@ -2363,6 +2365,7 @@ describe('EvalOutputCell extra actions hover behavior', () => {
       'Mark test failed',
       'Set test score',
       'Edit comment',
+      'Rerun test case',
       'View output and test details',
     ]);
   });
@@ -3093,5 +3096,45 @@ describe('EvalOutputCell inline image lightbox', () => {
 
     await user.click(imgElement);
     expect(container.querySelector('.lightbox')).toBeInTheDocument();
+  });
+
+  describe('rerun functionality', () => {
+    it('renders rerun button and triggers onRerun callback on click', async () => {
+      const user = userEvent.setup();
+      const mockOnRerun = vi.fn().mockResolvedValue(undefined);
+      const output = {
+        cost: 0,
+        id: 'test-id',
+        latencyMs: 100,
+        namedScores: {},
+        pass: true,
+        failureReason: ResultFailureReason.NONE,
+        prompt: 'Test prompt',
+        provider: 'test-provider',
+        score: 1.0,
+        text: 'Test output',
+        testCase: {},
+      };
+      const props: MockEvalOutputCellProps = {
+        firstOutput: output,
+        maxTextLength: 1000,
+        onRating: vi.fn(),
+        onRerun: mockOnRerun,
+        output,
+        promptIndex: 0,
+        rowIndex: 0,
+        searchText: '',
+        showDiffs: false,
+        showStats: false,
+      };
+
+      renderWithProviders(<EvalOutputCell {...props} />);
+
+      const rerunButton = screen.getByRole('button', { name: /rerun test case/i });
+      expect(rerunButton).toBeInTheDocument();
+
+      await user.click(rerunButton);
+      expect(mockOnRerun).toHaveBeenCalledTimes(1);
+    });
   });
 });

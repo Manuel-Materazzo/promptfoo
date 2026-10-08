@@ -10,7 +10,8 @@ import {
 } from '@app/components/ui/sheet';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@app/components/ui/tabs';
 import { HIDDEN_METADATA_KEYS } from '@app/constants';
-import { Check, Copy, X } from 'lucide-react';
+import { cn } from '@app/lib/utils';
+import { Check, Copy, RotateCw, X } from 'lucide-react';
 import ChatMessages, { type Message } from './ChatMessages';
 import { DebuggingPanel } from './DebuggingPanel';
 import { EvaluationPanel } from './EvaluationPanel';
@@ -162,6 +163,8 @@ interface EvalOutputPromptDialogProps {
   fetchTraces?: (evaluationId: string, signal: AbortSignal) => Promise<Trace[]>;
   cloudConfig?: CloudConfigData | null;
   readOnly?: boolean;
+  onRerun?: () => Promise<void>;
+  isRerunning?: boolean;
 }
 
 export default function EvalOutputPromptDialog({
@@ -181,6 +184,8 @@ export default function EvalOutputPromptDialog({
   onAddFilter,
   onResetFilters,
   onReplay,
+  onRerun,
+  isRerunning = false,
   fetchTraces,
   cloudConfig,
   readOnly = false,
@@ -399,15 +404,30 @@ export default function EvalOutputPromptDialog({
           <SheetDescription className="sr-only">
             View prompt, output, evaluation results, and metadata details
           </SheetDescription>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={onClose}
-            aria-label="close"
-            className="size-8 ml-2"
-          >
-            <X className="size-4" />
-          </Button>
+          <div className="flex items-center gap-2 ml-auto">
+            {onRerun && !readOnly && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onRerun}
+                disabled={isRerunning}
+                className="gap-1.5"
+                aria-label="Rerun test case"
+              >
+                <RotateCw className={cn('size-3.5', isRerunning && 'animate-spin')} />
+                <span>{isRerunning ? 'Rerunning...' : 'Rerun'}</span>
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={onClose}
+              aria-label="close"
+              className="size-8"
+            >
+              <X className="size-4" />
+            </Button>
+          </div>
         </SheetHeader>
 
         {/* Main content area with tabs */}

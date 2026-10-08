@@ -22,6 +22,9 @@ export const EVAL_ROUTES = {
   LIST: '/evals',
   DETAIL: (id: string) => `/eval/${id}`,
   RESULT_RATING: (evalId: string, resultId: string) => `/eval/${evalId}/results/${resultId}/rating`,
+  RESULT_RERUN: (evalId: string, resultId: string) => `/eval/${evalId}/results/${resultId}/rerun`,
+  TEST_CASE_RERUN: (evalId: string, testIdx: number) =>
+    `/eval/${evalId}/test-cases/${testIdx}/rerun`,
 } as const;
 
 // Red Team routes

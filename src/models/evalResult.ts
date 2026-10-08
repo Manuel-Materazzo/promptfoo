@@ -1137,6 +1137,54 @@ export default class EvalResult {
     invalidateEvaluationCache(this.evalId);
   }
 
+  async updateFromEvaluateResult(result: EvaluateResult) {
+    const {
+      prompt,
+      error,
+      score,
+      latencyMs,
+      success,
+      provider,
+      gradingResult,
+      namedScores,
+      cost,
+      metadata,
+      failureReason,
+    } = result;
+
+    const persistedMetadata = persistTraceMetadata(metadata, result.traceId, result.evaluationId);
+
+    const processedResponse = await extractAndStoreBinaryData(result.response, {
+      evalId: this.evalId,
+      testIdx: this.testIdx,
+      promptIdx: this.promptIdx,
+    });
+
+    const redacted = redactSensitiveResultFieldsForDb({
+      response: sanitizeForDb(processedResponse || null),
+      gradingResult: sanitizeForDb(gradingResult || null),
+      metadata: sanitizeForDb(persistedMetadata),
+    });
+
+    this.prompt = sanitizeForDbWithSecrets(prompt);
+    this.promptId = hashPrompt(prompt);
+    this.error = error?.toString() ?? null;
+    this.success = success;
+    this.score = score == null ? 0 : score;
+    this.response = (redacted.response as ProviderResponse | null) ?? undefined;
+    this.gradingResult = (redacted.gradingResult as GradingResult | null) ?? null;
+    this.namedScores = sanitizeForDb(namedScores) ?? {};
+    this.provider = provider ? sanitizeProvider(provider) : this.provider;
+    this.latencyMs = latencyMs ?? 0;
+    this.cost = cost ?? 0;
+    this.metadata = redacted.metadata ?? {};
+    this.failureReason = isResultFailureReason(failureReason)
+      ? failureReason
+      : ResultFailureReason.NONE;
+
+    await this.save();
+  }
+
   toEvaluateResult(stripFlags = getStripFlags()): EvaluateResult {
     const {
       shouldStripPromptText,

@@ -25,6 +25,7 @@ import {
   Hash,
   Link,
   Pencil,
+  RotateCw,
   Search,
   Star,
   ThumbsDown,
@@ -1054,6 +1055,8 @@ function renderOutputActions({
   handleCommentOpen,
   handlePromptOpen,
   handlePromptClose,
+  handleRerun,
+  isRerunning,
   setActionsHovered,
 }: {
   showExtraActions: boolean;
@@ -1082,6 +1085,8 @@ function renderOutputActions({
   handleCommentOpen: () => void;
   handlePromptOpen: () => void;
   handlePromptClose: () => void;
+  handleRerun: () => Promise<void>;
+  isRerunning: boolean;
   setActionsHovered: (hovered: boolean) => void;
 }): React.ReactNode {
   const passActionLabel = isRedteam ? 'Mark as safe' : 'Mark test passed';
@@ -1210,6 +1215,22 @@ function renderOutputActions({
         </TooltipTrigger>
         <TooltipContent>Edit comment</TooltipContent>
       </Tooltip>
+      <Tooltip disableHoverableContent>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            className="action p-1 rounded hover:bg-muted transition-colors disabled:opacity-50"
+            onClick={handleRerun}
+            disabled={isRerunning}
+            aria-label="Rerun test case"
+          >
+            <RotateCw className={`size-4 ${isRerunning ? 'animate-spin' : ''}`} />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>
+          {isRerunning ? 'Rerunning test case...' : 'Rerun test case'}
+        </TooltipContent>
+      </Tooltip>
       {output.prompt && (
         <>
           <Tooltip disableHoverableContent>
@@ -1243,6 +1264,8 @@ function renderOutputActions({
               onAddFilter={addFilter}
               onResetFilters={resetFilters}
               onReplay={replayEvaluation}
+              onRerun={handleRerun}
+              isRerunning={isRerunning}
               fetchTraces={fetchTraces}
               cloudConfig={cloudConfig}
             />
@@ -1262,6 +1285,7 @@ export interface EvalOutputCellProps {
   showStats: boolean;
   isRedteam?: boolean;
   onRating: (isPass?: boolean | null, score?: number, comment?: string) => void;
+  onRerun?: () => Promise<void>;
   evaluationId?: string;
   testCaseId?: string;
 }
@@ -1291,6 +1315,7 @@ function EvalOutputCell({
   rowPositionIndex = rowIndex,
   promptIndex,
   onRating,
+  onRerun,
   firstOutput,
   showDiffs,
   searchText,
@@ -1320,6 +1345,19 @@ function EvalOutputCell({
   const { replayEvaluation, fetchTraces } = useEvalOperations();
 
   const [openPrompt, setOpen] = React.useState(false);
+  const [isRerunning, setIsRerunning] = React.useState(false);
+
+  const handleRerun = async () => {
+    if (isRerunning || !onRerun) {
+      return;
+    }
+    setIsRerunning(true);
+    try {
+      await onRerun();
+    } finally {
+      setIsRerunning(false);
+    }
+  };
   const locationHash = useEvalDetailsHash();
   const [activeRating, setActiveRating] = React.useState<boolean | null>(
     getHumanRating(output)?.pass ?? null,
@@ -1666,6 +1704,8 @@ function EvalOutputCell({
         handleCommentOpen,
         handlePromptOpen,
         handlePromptClose,
+        handleRerun,
+        isRerunning,
         setActionsHovered,
       })}
       {lightboxOpen && lightboxImage && (

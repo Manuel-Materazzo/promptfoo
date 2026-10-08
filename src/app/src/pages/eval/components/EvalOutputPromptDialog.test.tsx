@@ -1209,4 +1209,37 @@ describe('EvalOutputPromptDialog traces tab visibility', () => {
       });
     });
   });
+
+  describe('rerun functionality', () => {
+    it('renders rerun button and triggers onRerun on click', async () => {
+      const mockOnRerun = vi.fn().mockResolvedValue(undefined);
+      renderWithProviders(<EvalOutputPromptDialog {...defaultProps} onRerun={mockOnRerun} />);
+
+      const rerunButton = screen.getByRole('button', { name: /rerun test case/i });
+      expect(rerunButton).toBeInTheDocument();
+
+      await userEvent.click(rerunButton);
+      expect(mockOnRerun).toHaveBeenCalledTimes(1);
+    });
+
+    it('disables rerun button while isRerunning is true', () => {
+      const mockOnRerun = vi.fn().mockResolvedValue(undefined);
+      renderWithProviders(
+        <EvalOutputPromptDialog {...defaultProps} onRerun={mockOnRerun} isRerunning={true} />,
+      );
+
+      const rerunButton = screen.getByRole('button', { name: /rerun test case/i });
+      expect(rerunButton).toBeDisabled();
+      expect(screen.getByText('Rerunning...')).toBeInTheDocument();
+    });
+
+    it('does not render rerun button when readOnly is true', () => {
+      const mockOnRerun = vi.fn().mockResolvedValue(undefined);
+      renderWithProviders(
+        <EvalOutputPromptDialog {...defaultProps} onRerun={mockOnRerun} readOnly={true} />,
+      );
+
+      expect(screen.queryByRole('button', { name: /rerun test case/i })).not.toBeInTheDocument();
+    });
+  });
 });

@@ -13,6 +13,7 @@ import {
 import { Spinner } from '@app/components/ui/spinner';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@app/components/ui/tooltip';
 import { EVAL_ROUTES, ROUTES } from '@app/constants/routes';
+import { useEvalOperations } from '@app/hooks/useEvalOperations';
 import { useToast } from '@app/hooks/useToast';
 import { cn } from '@app/lib/utils';
 import { callApi } from '@app/utils/api';
@@ -1678,6 +1679,7 @@ function ResultsTable({
   const { setFilterMode } = useFilterMode();
 
   const { showToast } = useToast();
+  const { rerunTestResult } = useEvalOperations();
   const navigate = useNavigate();
   const locationHash = useEvalDetailsHash();
 
@@ -1771,6 +1773,61 @@ function ResultsTable({
       }
     },
     [body, head, setTable, evalId, inComparisonMode, showToast],
+  );
+
+  const handleRerun = React.useCallback(
+    async (rowIndex: number, promptIndex: number, resultId: string) => {
+      if (!evalId) {
+        showToast('Cannot rerun test case without an evaluation ID', 'warning');
+        return;
+      }
+      if (inComparisonMode) {
+        showToast('Rerun is not available in comparison mode', 'warning');
+        return;
+      }
+
+      const res = await rerunTestResult(evalId, resultId);
+      if (res.success && res.result) {
+        const currentTable = useTableStore.getState().table;
+        if (currentTable) {
+          const newBody = [...currentTable.body];
+          let targetRowIdx = rowIndex;
+          let targetPromptIdx = promptIndex;
+          for (let r = 0; r < newBody.length; r++) {
+            const pIdx = newBody[r]?.outputs?.findIndex((o) => o?.id === resultId);
+            if (pIdx !== undefined && pIdx !== -1) {
+              targetRowIdx = r;
+              targetPromptIdx = pIdx;
+              break;
+            }
+          }
+          if (newBody[targetRowIdx]?.outputs) {
+            const newOutputs = [...newBody[targetRowIdx].outputs];
+            newOutputs[targetPromptIdx] = res.result;
+            newBody[targetRowIdx] = {
+              ...newBody[targetRowIdx],
+              outputs: newOutputs,
+            };
+            setTable({
+              ...currentTable,
+              body: newBody,
+            });
+          }
+        }
+        showToast(
+          res.result.pass
+            ? 'Test case rerun completed: Passed'
+            : res.result.error
+              ? `Test case rerun error: ${res.result.error}`
+              : 'Test case rerun completed: Failed',
+          res.result.pass ? 'success' : res.result.error ? 'error' : 'warning',
+        );
+        await useTableStore.getState().fetchEvalData(evalId, { skipLoadingState: true });
+      } else {
+        showToast(res.error || 'Failed to rerun test case', 'error');
+      }
+    },
+    [evalId, inComparisonMode, rerunTestResult, setTable, showToast],
   );
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: row positions should stay paired with the loaded body until the next page payload arrives.
@@ -2214,6 +2271,12 @@ function ResultsTable({
                       output.originalPromptIndex ?? idx,
                       output.id,
                     )}
+                    onRerun={handleRerun.bind(
+                      null,
+                      output.originalRowIndex ?? info.row.index,
+                      output.originalPromptIndex ?? idx,
+                      output.id,
+                    )}
                     firstOutput={getFirstOutput(info.row.index)}
                     showDiffs={filterMode === 'different' && visiblePromptCount > 1}
                     searchText={debouncedSearchText}
@@ -2242,6 +2305,7 @@ function ResultsTable({
     getMetrics,
     getOutput,
     handleRating,
+    handleRerun,
     head,
     head.prompts,
     isRedteam,

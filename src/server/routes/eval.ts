@@ -24,6 +24,7 @@ import {
 } from '../../util/sanitizer';
 import { shouldShareResults } from '../../util/sharing';
 import { evalJobService } from '../services/evalJobService';
+import { rerunTestCaseRow, rerunTestResult } from '../services/evalRerunService';
 import { setDownloadHeaders } from '../utils/downloadHelpers';
 import { replyValidationError, sendError } from '../utils/errors';
 import type { Request, Response } from 'express';
@@ -777,6 +778,70 @@ evalRouter.post(
       res.json(EvalSchemas.SubmitRating.Response.parse(result));
     } catch (error) {
       sendError(res, 500, 'Failed to submit rating', error);
+    }
+  },
+);
+
+evalRouter.post(
+  '/:evalId/results/:id/rerun',
+  async (req: Request, res: Response): Promise<void> => {
+    const paramsResult = EvalSchemas.RerunResult.Params.safeParse(req.params);
+    if (!paramsResult.success) {
+      replyValidationError(res, paramsResult.error);
+      return;
+    }
+
+    try {
+      const { evalId, id } = paramsResult.data;
+      const result = await rerunTestResult(evalId, id);
+      res.json(
+        EvalSchemas.RerunResult.Response.parse({
+          result,
+          message: 'Test case rerun successfully',
+        }),
+      );
+    } catch (error) {
+      logger.error(`Failed to rerun test result: ${error}`);
+      if (
+        error instanceof Error &&
+        (error.message === 'Eval not found' || error.message === 'Result not found')
+      ) {
+        res.status(404).json({ error: error.message });
+        return;
+      }
+      sendError(res, 500, 'Failed to rerun test result', error);
+    }
+  },
+);
+
+evalRouter.post(
+  '/:evalId/test-cases/:testIdx/rerun',
+  async (req: Request, res: Response): Promise<void> => {
+    const paramsResult = EvalSchemas.RerunTestCase.Params.safeParse(req.params);
+    if (!paramsResult.success) {
+      replyValidationError(res, paramsResult.error);
+      return;
+    }
+
+    try {
+      const { evalId, testIdx } = paramsResult.data;
+      const results = await rerunTestCaseRow(evalId, testIdx);
+      res.json(
+        EvalSchemas.RerunTestCase.Response.parse({
+          results,
+          message: 'Test case row rerun successfully',
+        }),
+      );
+    } catch (error) {
+      logger.error(`Failed to rerun test case row: ${error}`);
+      if (
+        error instanceof Error &&
+        (error.message === 'Eval not found' || error.message.startsWith('No results found'))
+      ) {
+        res.status(404).json({ error: error.message });
+        return;
+      }
+      sendError(res, 500, 'Failed to rerun test case row', error);
     }
   },
 );

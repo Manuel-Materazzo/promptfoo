@@ -1,11 +1,13 @@
 import { useCallback } from 'react';
 
+import { EVAL_ROUTES } from '@app/constants/routes';
 import { callApi } from '@app/utils/api';
 import type { Trace } from '@app/components/traces/TraceView';
 import type {
   ReplayEvaluationParams,
   ReplayEvaluationResult,
 } from '@app/pages/eval/components/EvalOutputPromptDialog';
+import type { EvaluateTableOutput } from '@promptfoo/types';
 
 /**
  * Custom hook that provides eval-related API operations.
@@ -55,8 +57,36 @@ export function useEvalOperations() {
     return Array.isArray(data.traces) ? data.traces : [];
   }, []);
 
+  const rerunTestResult = useCallback(
+    async (
+      evalId: string,
+      resultId: string,
+    ): Promise<{ success: boolean; result?: EvaluateTableOutput; error?: string }> => {
+      try {
+        const response = await callApi(EVAL_ROUTES.RESULT_RERUN(evalId, resultId), {
+          method: 'POST',
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => null);
+          return { success: false, error: errorData?.error || 'Failed to rerun test case' };
+        }
+
+        const data = await response.json();
+        return { success: true, result: data.result as EvaluateTableOutput };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'An error occurred',
+        };
+      }
+    },
+    [],
+  );
+
   return {
     replayEvaluation,
     fetchTraces,
+    rerunTestResult,
   };
 }

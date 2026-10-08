@@ -288,6 +288,46 @@ export type SubmitRatingParams = z.infer<typeof SubmitRatingParamsSchema>;
 export type SubmitRatingRequest = z.infer<typeof SubmitRatingRequestSchema>;
 export type SubmitRatingResponse = z.infer<typeof SubmitRatingResponseSchema>;
 
+// POST /api/eval/:evalId/results/:id/rerun
+
+export const RerunResultParamsSchema = z.object({
+  evalId: z.string().min(1),
+  id: z.string().min(1),
+});
+
+export const RerunResultRequestSchema = z.object({}).passthrough().optional();
+
+export const RerunResultResponseSchema = z
+  .object({
+    result: z.record(z.string(), z.unknown()),
+    message: z.string(),
+  })
+  .passthrough();
+
+export type RerunResultParams = z.infer<typeof RerunResultParamsSchema>;
+export type RerunResultRequest = z.infer<typeof RerunResultRequestSchema>;
+export type RerunResultResponse = z.infer<typeof RerunResultResponseSchema>;
+
+// POST /api/eval/:evalId/test-cases/:testIdx/rerun
+
+export const RerunTestCaseParamsSchema = z.object({
+  evalId: z.string().min(1),
+  testIdx: z.coerce.number().int().nonnegative(),
+});
+
+export const RerunTestCaseRequestSchema = z.object({}).passthrough().optional();
+
+export const RerunTestCaseResponseSchema = z
+  .object({
+    results: z.array(z.record(z.string(), z.unknown())),
+    message: z.string(),
+  })
+  .passthrough();
+
+export type RerunTestCaseParams = z.infer<typeof RerunTestCaseParamsSchema>;
+export type RerunTestCaseRequest = z.infer<typeof RerunTestCaseRequestSchema>;
+export type RerunTestCaseResponse = z.infer<typeof RerunTestCaseResponseSchema>;
+
 // POST /api/eval (save eval to database)
 
 export const SaveEvalRequestSchema = z
@@ -386,6 +426,16 @@ export const EvalSchemas = {
     Params: SubmitRatingParamsSchema,
     Request: SubmitRatingRequestSchema,
     Response: SubmitRatingResponseSchema,
+  },
+  RerunResult: {
+    Params: RerunResultParamsSchema,
+    Request: RerunResultRequestSchema,
+    Response: RerunResultResponseSchema,
+  },
+  RerunTestCase: {
+    Params: RerunTestCaseParamsSchema,
+    Request: RerunTestCaseRequestSchema,
+    Response: RerunTestCaseResponseSchema,
   },
   Save: {
     Request: SaveEvalRequestSchema,
