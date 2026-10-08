@@ -1,6 +1,6 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@app/components/ui/dialog';
+import { Button } from '@app/components/ui/button';
 import {
   Select,
   SelectContent,
@@ -8,759 +8,635 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@app/components/ui/select';
-import { EVAL_ROUTES } from '@app/constants/routes';
-import { callApi } from '@app/utils/api';
+import { cn } from '@app/lib/utils';
 import {
   BarController,
   BarElement,
   CategoryScale,
   Chart,
+  type ChartDataset,
   Colors,
+  Legend,
   LinearScale,
-  LineController,
-  LineElement,
-  PointElement,
-  ScatterController,
   Tooltip,
   type TooltipItem,
 } from 'chart.js';
 import { ErrorBoundary } from 'react-error-boundary';
-import { usePassRates } from './hooks';
 import { useTableStore } from './store';
-import type { EvaluateTable, UnifiedConfig } from '@promptfoo/types';
+import type { EvaluateTable } from '@promptfoo/types';
 
-interface ResultsChartsProps {
-  scores: number[];
+export interface ResultsChartsProps {
+  scores?: number[];
 }
 
-interface ChartProps {
+export interface ChartProps {
   table: EvaluateTable;
-  evalId?: string | null;
-  config?: Partial<UnifiedConfig>;
-  datasetId?: string | null;
 }
-
-type ScatterPoint = {
-  x: number;
-  y: number;
-  backgroundColor: string;
-  rowIndex: number;
-};
 
 const COLOR_PALETTE = [
-  '#fd7f6f',
-  '#7eb0d5',
-  '#b2e061',
-  '#bd7ebe',
-  '#ffb55a',
-  '#ffee65',
-  '#beb9db',
-  '#fdcce5',
-  '#8bd3c7',
+  '#3b82f6', // blue
+  '#8b5cf6', // purple
+  '#ec4899', // pink
+  '#f59e0b', // amber
+  '#10b981', // emerald
+  '#06b6d4', // cyan
+  '#f97316', // orange
+  '#6366f1', // indigo
+  '#14b8a6', // teal
+  '#a855f7', // violet
 ];
 
-Chart.register(
-  BarController,
-  LineController,
-  ScatterController,
-  CategoryScale,
-  LinearScale,
-  BarElement,
-  LineElement,
-  PointElement,
-  Tooltip,
-  Colors,
-);
+const PASS_COLOR = '#22c55e'; // Green
+const FAIL_COLOR = '#ef4444'; // Red
 
-function HistogramChart({ table }: ChartProps) {
-  const histogramCanvasRef = useRef(null);
-  const histogramChartInstance = useRef<Chart | null>(null);
+Chart.register(BarController, CategoryScale, LinearScale, BarElement, Tooltip, Legend, Colors);
+
+export function DescriptionResultsChart({ table }: ChartProps) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const chartInstance = useRef<Chart | null>(null);
+  const [promptView, setPromptView] = useState<string>('compare');
+
+  const prompts = table.head.prompts || [];
+  const rows = table.body || [];
+
+  const descriptions = useMemo(() => {
+    const list: string[] = [];
+    for (const row of rows) {
+      const desc = row.description?.trim() || row.test?.description?.trim() || '(No description)';
+      if (!list.includes(desc)) {
+        list.push(desc);
+      }
+    }
+    return list;
+  }, [rows]);
 
   useEffect(() => {
-    if (!histogramCanvasRef.current) {
+    if (!canvasRef.current) {
       return;
     }
 
-    if (histogramChartInstance.current) {
-      histogramChartInstance.current.destroy();
+    if (chartInstance.current) {
+      chartInstance.current.destroy();
+      chartInstance.current = null;
     }
 
-    // Calculate bins and their counts
-    const scores = table.body
-      .flatMap((row) => row.outputs.map((output) => output?.score))
-      .filter((score) => typeof score === 'number' && !Number.isNaN(score));
-
-    if (scores.length === 0) {
+    if (descriptions.length === 0) {
       return;
     }
 
-    const maxScore = Math.max(...scores);
-    const minScore = Math.min(...scores);
-    const range = Math.ceil(maxScore) - Math.floor(minScore); // Adjust the range to be between whole numbers
-    const binSize = range === 0 ? 1 : range / 10;
-    const bins = Array.from({ length: range === 0 ? 1 : 11 }, (_, i) =>
-      Number.parseFloat((Math.floor(minScore) + i * binSize).toFixed(2)),
-    );
+    let datasets: ChartDataset<'bar'>[] = [];
 
-    const datasets = table.head.prompts.map((prompt, promptIdx) => {
-      const scores = table.body
-        .map((row) => row.outputs[promptIdx]?.score)
-        .filter((score) => typeof score === 'number' && !Number.isNaN(score));
-      const counts = bins.map(
-        (bin) => scores.filter((score) => score >= bin && score < bin + binSize).length,
+    if (prompts.length <= 1 || promptView === '0') {
+      const pIdx = 0;
+      const passCounts = descriptions.map((desc) =>
+        rows.reduce((acc, row) => {
+          const d = row.description?.trim() || row.test?.description?.trim() || '(No description)';
+          if (d !== desc) {
+            return acc;
+          }
+          return acc + (row.outputs?.[pIdx]?.pass === true ? 1 : 0);
+        }, 0),
       );
-      return {
-        label: prompt.provider,
-        data: counts,
-        backgroundColor: COLOR_PALETTE[promptIdx % COLOR_PALETTE.length],
-      };
-    });
 
-    histogramChartInstance.current = new Chart(histogramCanvasRef.current, {
-      type: 'bar',
-      data: {
-        labels: bins,
-        datasets,
-      },
-      options: {
-        animation: false,
-        plugins: {
-          title: {
-            display: true,
-            text: 'Score Distribution',
-          },
-          legend: {
-            display: false,
-          },
-          tooltip: {
-            callbacks: {
-              title(context) {
-                const datasetIndex = context[0].datasetIndex;
-                return table.head.prompts[datasetIndex].provider;
-              },
-              label(context) {
-                const labelIndex = context.dataIndex;
-                const lowerBound = bins[labelIndex];
-                const upperBound = bins[labelIndex + 1];
-                if (!upperBound) {
-                  return `${lowerBound} <= score`;
-                }
-                return `${lowerBound} <= score < ${upperBound}`;
-              },
-            },
-          },
-        },
-        scales: {
-          y: {
-            title: {
-              display: true,
-              text: 'Frequency',
-            },
-          },
-          x: {
-            title: {
-              display: true,
-              text: 'Score',
-            },
-          },
-        },
-      },
-    });
-  }, [table]);
+      const failCounts = descriptions.map((desc) =>
+        rows.reduce((acc, row) => {
+          const d = row.description?.trim() || row.test?.description?.trim() || '(No description)';
+          if (d !== desc) {
+            return acc;
+          }
+          return acc + (row.outputs?.[pIdx]?.pass === true ? 0 : 1);
+        }, 0),
+      );
 
-  return <canvas ref={histogramCanvasRef} style={{ maxHeight: '300px' }}></canvas>;
-}
-
-function PassRateChart({ table }: ChartProps) {
-  const passRates = usePassRates();
-  const passRateCanvasRef = useRef(null);
-  const passRateChartInstance = useRef<Chart | null>(null);
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional
-  useEffect(() => {
-    if (!passRateCanvasRef.current) {
-      return;
-    }
-
-    if (passRateChartInstance.current) {
-      passRateChartInstance.current.destroy();
-    }
-
-    const datasets = table.head.prompts.map((prompt, promptIdx) => ({
-      label: prompt.provider,
-      data: [passRates[promptIdx]?.total ?? 0],
-      backgroundColor: COLOR_PALETTE[promptIdx % COLOR_PALETTE.length],
-    }));
-
-    passRateChartInstance.current = new Chart(passRateCanvasRef.current, {
-      type: 'bar',
-      data: {
-        labels: ['Pass Rate (%)'],
-        datasets,
-      },
-      options: {
-        animation: false,
-        plugins: {
-          title: {
-            display: true,
-            text: 'Pass Rate',
-          },
-          legend: {
-            display: true,
-          },
-          tooltip: {
-            callbacks: {
-              label: function (context) {
-                return `${context.dataset.label}: ${(context.parsed.y ?? 0).toFixed(2)}%`;
-              },
-            },
-          },
-        },
-      },
-    });
-  }, [table]);
-
-  return <canvas ref={passRateCanvasRef} style={{ maxHeight: '300px' }}></canvas>;
-}
-
-function ScatterChart({ table }: ChartProps) {
-  const scatterCanvasRef = useRef(null);
-  const scatterChartInstance = useRef<Chart | null>(null);
-  const [xAxisPrompt, setXAxisPrompt] = useState(0);
-  const [yAxisPrompt, setYAxisPrompt] = useState(1);
-  const [open, setOpen] = useState(false);
-
-  useEffect(() => {
-    if (!scatterCanvasRef.current) {
-      return;
-    }
-
-    if (scatterChartInstance.current) {
-      scatterChartInstance.current.destroy();
-    }
-
-    const scores = table.body
-      .flatMap((row) => row.outputs.map((output) => output?.score))
-      .filter((score) => typeof score === 'number' && !Number.isNaN(score));
-
-    if (scores.length === 0) {
-      return;
-    }
-
-    const minScore = Math.min(...scores);
-    const maxScore = Math.max(...scores);
-
-    const data = table.body.flatMap<ScatterPoint>((row, rowIndex) => {
-      const prompt1Score = row.outputs[xAxisPrompt]?.score;
-      const prompt2Score = row.outputs[yAxisPrompt]?.score;
-
-      if (
-        typeof prompt1Score !== 'number' ||
-        Number.isNaN(prompt1Score) ||
-        typeof prompt2Score !== 'number' ||
-        Number.isNaN(prompt2Score)
-      ) {
-        return [];
-      }
-
-      let backgroundColor;
-      if (prompt2Score > prompt1Score) {
-        backgroundColor = 'green';
-      } else if (prompt2Score < prompt1Score) {
-        backgroundColor = 'red';
-      } else {
-        backgroundColor = 'gray';
-      }
-
-      return [
+      datasets = [
         {
-          x: prompt1Score,
-          y: prompt2Score,
-          backgroundColor,
-          rowIndex,
+          label: 'Pass',
+          data: passCounts,
+          backgroundColor: PASS_COLOR,
+          stack: 'results',
+        },
+        {
+          label: 'Fail',
+          data: failCounts,
+          backgroundColor: FAIL_COLOR,
+          stack: 'results',
         },
       ];
-    });
+    } else if (promptView === 'combined') {
+      const passCounts = descriptions.map((desc) =>
+        rows.reduce((acc, row) => {
+          const d = row.description?.trim() || row.test?.description?.trim() || '(No description)';
+          if (d !== desc) {
+            return acc;
+          }
+          return acc + (row.outputs || []).filter((output) => output?.pass === true).length;
+        }, 0),
+      );
 
-    scatterChartInstance.current = new Chart(scatterCanvasRef.current, {
-      type: 'scatter',
+      const failCounts = descriptions.map((desc) =>
+        rows.reduce((acc, row) => {
+          const d = row.description?.trim() || row.test?.description?.trim() || '(No description)';
+          if (d !== desc) {
+            return acc;
+          }
+          return (
+            acc + (row.outputs || []).filter((output) => !output || output.pass !== true).length
+          );
+        }, 0),
+      );
+
+      datasets = [
+        {
+          label: 'Pass',
+          data: passCounts,
+          backgroundColor: PASS_COLOR,
+          stack: 'results',
+        },
+        {
+          label: 'Fail',
+          data: failCounts,
+          backgroundColor: FAIL_COLOR,
+          stack: 'results',
+        },
+      ];
+    } else if (promptView !== 'compare' && !Number.isNaN(Number(promptView))) {
+      const pIdx = Number(promptView);
+      const passCounts = descriptions.map((desc) =>
+        rows.reduce((acc, row) => {
+          const d = row.description?.trim() || row.test?.description?.trim() || '(No description)';
+          if (d !== desc) {
+            return acc;
+          }
+          return acc + (row.outputs?.[pIdx]?.pass === true ? 1 : 0);
+        }, 0),
+      );
+
+      const failCounts = descriptions.map((desc) =>
+        rows.reduce((acc, row) => {
+          const d = row.description?.trim() || row.test?.description?.trim() || '(No description)';
+          if (d !== desc) {
+            return acc;
+          }
+          return acc + (row.outputs?.[pIdx]?.pass === true ? 0 : 1);
+        }, 0),
+      );
+
+      datasets = [
+        {
+          label: 'Pass',
+          data: passCounts,
+          backgroundColor: PASS_COLOR,
+          stack: 'results',
+        },
+        {
+          label: 'Fail',
+          data: failCounts,
+          backgroundColor: FAIL_COLOR,
+          stack: 'results',
+        },
+      ];
+    } else {
+      // compare mode: each prompt gets its own stack
+      datasets = prompts.flatMap((prompt, pIdx) => {
+        const pLabel = prompt.label || prompt.provider || `Prompt ${pIdx + 1}`;
+        const passCounts = descriptions.map((desc) =>
+          rows.reduce((acc, row) => {
+            const d =
+              row.description?.trim() || row.test?.description?.trim() || '(No description)';
+            if (d !== desc) {
+              return acc;
+            }
+            return acc + (row.outputs?.[pIdx]?.pass === true ? 1 : 0);
+          }, 0),
+        );
+
+        const failCounts = descriptions.map((desc) =>
+          rows.reduce((acc, row) => {
+            const d =
+              row.description?.trim() || row.test?.description?.trim() || '(No description)';
+            if (d !== desc) {
+              return acc;
+            }
+            return acc + (row.outputs?.[pIdx]?.pass === true ? 0 : 1);
+          }, 0),
+        );
+
+        return [
+          {
+            label: `${pLabel} (Pass)`,
+            data: passCounts,
+            backgroundColor: PASS_COLOR,
+            stack: `prompt-${pIdx}`,
+          },
+          {
+            label: `${pLabel} (Fail)`,
+            data: failCounts,
+            backgroundColor: FAIL_COLOR,
+            stack: `prompt-${pIdx}`,
+          },
+        ];
+      });
+    }
+
+    const config = {
+      type: 'bar' as const,
       data: {
-        datasets: [
-          {
-            data,
-            backgroundColor: data.map((point) => point.backgroundColor),
-          },
-          {
-            type: 'line',
-            data: [
-              // @ts-ignore: types seem wrong, it wants backgroundColor
-              { x: minScore, y: minScore },
-              // @ts-ignore: types seem wrong, it wants backgroundColor
-              { x: maxScore, y: maxScore },
-            ],
-            borderColor: 'gray',
-            borderWidth: 1,
-            borderDash: [5, 5],
-            pointRadius: 0,
-          },
-        ],
+        labels: descriptions,
+        datasets,
       },
       options: {
-        animation: false,
-        plugins: {
-          legend: {
-            display: false,
-          },
-          tooltip: {
-            callbacks: {
-              label(tooltipItem: TooltipItem<'scatter'>) {
-                const point = tooltipItem.raw as Partial<ScatterPoint> | undefined;
-                const rowIndex =
-                  typeof point?.rowIndex === 'number' ? point.rowIndex : tooltipItem.dataIndex;
-                const row = table.body[rowIndex];
-                if (!row) {
-                  return '';
-                }
-
-                let prompt1Text = row.outputs[xAxisPrompt]?.text || 'No output';
-                let prompt2Text = row.outputs[yAxisPrompt]?.text || 'No output';
-                if (prompt1Text.length > 30) {
-                  prompt1Text = prompt1Text.substring(0, 30) + '...';
-                }
-                if (prompt2Text.length > 30) {
-                  prompt2Text = prompt2Text.substring(0, 30) + '...';
-                }
-                return `Output 1: ${prompt1Text}\nOutput 2: ${prompt2Text}`;
-              },
-            },
-          },
-        },
+        animation: false as const,
+        responsive: true,
+        maintainAspectRatio: false,
         scales: {
           x: {
+            stacked: true,
             title: {
               display: true,
-              text: `Prompt ${xAxisPrompt + 1} Score`,
+              text: 'Description',
+            },
+            grid: {
+              display: false,
             },
             ticks: {
-              callback(value: string | number, index: number, values: unknown[]) {
-                let ret = String(Math.round(Number(value) * 100));
-                if (index === values.length - 1) {
-                  ret += '%';
+              maxRotation: 45,
+              minRotation: 0,
+              autoSkip: false,
+              callback(value: string | number) {
+                const label = descriptions[Number(value)];
+                if (typeof label === 'string' && label.length > 25) {
+                  return `${label.substring(0, 22)}...`;
                 }
-                return ret;
+                return label || value;
               },
             },
           },
           y: {
+            stacked: true,
+            beginAtZero: true,
             title: {
               display: true,
-              text: `Prompt ${yAxisPrompt + 1} Score`,
+              text: 'Number of Tests',
             },
             ticks: {
-              callback(value: string | number, index: number, values: unknown[]) {
-                let ret = String(Math.round(Number(value) * 100));
-                if (index === values.length - 1) {
-                  ret += '%';
-                }
-                return ret;
+              stepSize: 1,
+              precision: 0,
+            },
+          },
+        },
+        plugins: {
+          legend: {
+            display: true,
+            position: 'top' as const,
+            labels: {
+              filter(legendItem: { datasetIndex?: number }) {
+                // When in compare mode, avoid duplicating Pass/Fail in legend
+                return legendItem.datasetIndex === 0 || legendItem.datasetIndex === 1;
+              },
+              generateLabels(_chart: Chart) {
+                return [
+                  {
+                    text: 'Pass',
+                    fillStyle: PASS_COLOR,
+                    strokeStyle: PASS_COLOR,
+                    hidden: false,
+                    datasetIndex: 0,
+                  },
+                  {
+                    text: 'Fail',
+                    fillStyle: FAIL_COLOR,
+                    strokeStyle: FAIL_COLOR,
+                    hidden: false,
+                    datasetIndex: 1,
+                  },
+                ];
+              },
+            },
+          },
+          tooltip: {
+            callbacks: {
+              title(items: TooltipItem<'bar'>[]) {
+                const index = items[0]?.dataIndex;
+                return descriptions[index] ?? '';
+              },
+              label(item: TooltipItem<'bar'>) {
+                const count = item.parsed.y ?? 0;
+                return `${item.dataset.label}: ${count}`;
               },
             },
           },
         },
       },
-    });
-  }, [table, xAxisPrompt, yAxisPrompt]);
+    };
+
+    chartInstance.current = new Chart(canvasRef.current, config);
+
+    return () => {
+      if (chartInstance.current) {
+        chartInstance.current.destroy();
+        chartInstance.current = null;
+      }
+    };
+  }, [descriptions, promptView, prompts, rows]);
+
+  if (rows.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-[300px] text-center p-4">
+        <p className="text-sm font-medium text-muted-foreground">No test cases found</p>
+      </div>
+    );
+  }
 
   return (
-    <>
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Compare prompt outputs</DialogTitle>
-          </DialogHeader>
-          <div className="flex gap-4 py-4">
-            <Select
-              value={String(xAxisPrompt)}
-              onValueChange={(val) => setXAxisPrompt(Number(val))}
-            >
-              <SelectTrigger className="w-32">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {table.head.prompts.map((_prompt, idx) => (
-                  <SelectItem key={idx} value={String(idx)}>
-                    Prompt {idx + 1}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select
-              value={String(yAxisPrompt)}
-              onValueChange={(val) => setYAxisPrompt(Number(val))}
-            >
-              <SelectTrigger className="w-32">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {table.head.prompts.map((_prompt, idx) => (
-                  <SelectItem key={idx} value={String(idx)}>
-                    Prompt {idx + 1}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </DialogContent>
-      </Dialog>
-      <canvas
-        ref={scatterCanvasRef}
-        style={{ maxHeight: '300px', cursor: 'pointer' }}
-        onClick={() => setOpen(true)}
-      ></canvas>
-    </>
+    <div className="flex flex-col h-full">
+      <div className="flex items-center justify-between mb-3">
+        <div>
+          <h3 className="text-sm font-semibold text-foreground">Results by Description</h3>
+          <p className="text-xs text-muted-foreground">
+            Pass / fail counts grouped by test description
+          </p>
+        </div>
+        {prompts.length > 1 && (
+          <Select value={promptView} onValueChange={setPromptView}>
+            <SelectTrigger className="w-48 h-8 text-xs">
+              <SelectValue placeholder="Select model" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="compare">Compare all models</SelectItem>
+              <SelectItem value="combined">All models (combined)</SelectItem>
+              {prompts.map((prompt, idx) => (
+                <SelectItem key={idx} value={String(idx)}>
+                  {prompt.label || prompt.provider || `Prompt ${idx + 1}`}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+      </div>
+      <div className="relative flex-1 min-h-[260px] w-full">
+        <canvas ref={canvasRef} style={{ maxHeight: '300px', width: '100%' }} />
+      </div>
+    </div>
   );
 }
 
-function MetricChart({ table }: ChartProps) {
-  const metricCanvasRef = useRef(null);
-  const metricChartInstance = useRef<Chart | null>(null);
+export function MetricChart({ table }: ChartProps) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const chartInstance = useRef<Chart | null>(null);
+
+  const prompts = table.head.prompts || [];
+
+  const allMetricKeys = useMemo(() => {
+    const keys: string[] = [];
+    for (const prompt of prompts) {
+      for (const key of Object.keys(prompt.metrics?.namedScores || {})) {
+        if (!keys.includes(key)) {
+          keys.push(key);
+        }
+      }
+    }
+    return keys;
+  }, [prompts]);
+
+  const [visibleMetrics, setVisibleMetrics] = useState<string[]>(allMetricKeys);
+  const [isStacked, setIsStacked] = useState<boolean>(false);
+
+  // Sync visible metrics when available keys change
+  useEffect(() => {
+    setVisibleMetrics(allMetricKeys);
+  }, [allMetricKeys]);
+
+  const toggleMetric = (key: string) => {
+    setVisibleMetrics((prev) =>
+      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key],
+    );
+  };
+
+  const activeMetricKeys = useMemo(() => {
+    return allMetricKeys.filter((key) => visibleMetrics.includes(key));
+  }, [allMetricKeys, visibleMetrics]);
 
   useEffect(() => {
-    if (!metricCanvasRef.current) {
+    if (!canvasRef.current) {
       return;
     }
 
-    if (metricChartInstance.current) {
-      metricChartInstance.current.destroy();
+    if (chartInstance.current) {
+      chartInstance.current.destroy();
+      chartInstance.current = null;
     }
 
-    const namedScoreKeys = Object.keys(table.head.prompts[0].metrics?.namedScores || {});
-    const labels = namedScoreKeys;
-    // Compute each metric's normalization value once; it depends only on the key, not the prompt.
-    const normalizationValueByKey = new Map(
-      namedScoreKeys.map((key) => {
-        const values = table.head.prompts.map((p) => p.metrics?.namedScores[key] || 0);
-        const maxValue = Math.max(...values);
-        return [key, maxValue > 0 ? maxValue : Math.max(...values.map(Math.abs))];
-      }),
-    );
-    const datasets = table.head.prompts.map((prompt, promptIdx) => {
-      const data = namedScoreKeys.map((key) => {
-        const value = prompt.metrics?.namedScores[key] || 0;
-        const normalizationValue = normalizationValueByKey.get(key) ?? 0;
-        return normalizationValue > 0 ? value / normalizationValue : 0;
+    if (activeMetricKeys.length === 0) {
+      return;
+    }
+
+    const datasets = prompts.map((prompt, promptIdx) => {
+      const data = activeMetricKeys.map((key) => {
+        const val = prompt.metrics?.namedScores?.[key];
+        return typeof val === 'number' && Number.isFinite(val) ? val : 0;
       });
+
       return {
-        label: `${table.head.prompts[promptIdx].provider}`,
+        label: prompt.label || prompt.provider || `Prompt ${promptIdx + 1}`,
         data,
         backgroundColor: COLOR_PALETTE[promptIdx % COLOR_PALETTE.length],
+        stack: isStacked ? 'metrics-stack' : undefined,
       };
     });
 
     const config = {
       type: 'bar' as const,
       data: {
-        labels,
+        labels: activeMetricKeys,
         datasets,
       },
       options: {
+        animation: false as const,
+        responsive: true,
+        maintainAspectRatio: false,
         scales: {
           x: {
+            stacked: isStacked,
             grid: {
               display: false,
             },
+            title: {
+              display: true,
+              text: 'Metric',
+            },
           },
           y: {
+            stacked: isStacked,
+            beginAtZero: true,
+            title: {
+              display: true,
+              text: 'Score',
+            },
             ticks: {
-              callback(value: string | number, index: number, values: unknown[]) {
-                let ret = String(Math.round(Number(value) * 100));
-                if (index === values.length - 1) {
-                  ret += '%';
+              callback(value: string | number) {
+                if (typeof value === 'number') {
+                  return Number.isInteger(value) ? value : Number(value.toFixed(2));
                 }
-                return ret;
+                return value;
               },
             },
           },
         },
         plugins: {
+          legend: {
+            display: true,
+            position: 'top' as const,
+          },
           tooltip: {
             callbacks: {
-              title(tooltipItem: TooltipItem<'bar'>[]) {
-                return tooltipItem[0].dataset.label;
+              title(items: TooltipItem<'bar'>[]) {
+                return items[0]?.label ?? '';
               },
-              label(tooltipItem: TooltipItem<'bar'>) {
-                const value = tooltipItem.parsed.y ?? 0;
-                return `${labels[tooltipItem.dataIndex]}: ${(value * 100).toFixed(2)}% pass rate`;
+              label(item: TooltipItem<'bar'>) {
+                const value = item.parsed.y ?? 0;
+                const formatted = Number.isInteger(value) ? value : value.toFixed(2);
+                return `${item.dataset.label}: ${formatted}`;
               },
             },
           },
         },
       },
     };
-    metricChartInstance.current = new Chart(metricCanvasRef.current, config);
-  }, [table]);
 
-  return <canvas ref={metricCanvasRef} style={{ maxHeight: '300px' }}></canvas>;
-}
+    chartInstance.current = new Chart(canvasRef.current, config);
 
-interface ProgressData {
-  evalId: string;
-  description: string;
-  promptId: string;
-  createdAt: number;
-  label: string;
-  provider: string;
-  metrics: {
-    testPassCount: number;
-    testFailCount: number;
-    score: number;
-  };
-}
-
-function getPassRate(metrics: ProgressData['metrics']): number {
-  const totalTests = metrics.testPassCount + metrics.testFailCount;
-  return totalTests === 0 ? 0 : (metrics.testPassCount / totalTests) * 100;
-}
-
-function PerformanceOverTimeChart({ evalId }: ChartProps) {
-  const { config } = useTableStore();
-  const lineCanvasRef = useRef(null);
-  const lineChartInstance = useRef<Chart | null>(null);
-  const [progressData, setProgressData] = useState<ProgressData[]>([]);
-
-  useEffect(() => {
-    const fetchProgressData = async () => {
-      if (!config?.description) {
-        return;
-      }
-
-      try {
-        const res = await callApi(`/history?description=${encodeURIComponent(config.description)}`);
-        if (!res.ok) {
-          throw new Error(`Failed to fetch progress data: ${res.status} ${res.statusText}`);
-        }
-
-        const data = await res.json();
-        setProgressData(Array.isArray(data?.data) ? data.data : []);
-      } catch (error) {
-        console.error('Error fetching progress data:', error);
+    return () => {
+      if (chartInstance.current) {
+        chartInstance.current.destroy();
+        chartInstance.current = null;
       }
     };
+  }, [activeMetricKeys, isStacked, prompts]);
 
-    fetchProgressData();
-  }, [config?.description]);
-
-  useEffect(() => {
-    if (!lineCanvasRef.current || !evalId || progressData.length === 0) {
-      return;
-    }
-
-    if (lineChartInstance.current) {
-      lineChartInstance.current.destroy();
-    }
-
-    // Group evaluations by createdAt and assign evaluation numbers
-    const evaluationGroups = progressData.reduce<Record<string, ProgressData[]>>(
-      (groups, eval_) => {
-        const date = new Date(eval_.createdAt).toISOString();
-        if (!groups[date]) {
-          groups[date] = [];
-        }
-        groups[date].push(eval_);
-        return groups;
-      },
-      {},
+  if (allMetricKeys.length === 0) {
+    return (
+      <div className="flex flex-col h-full">
+        <div className="mb-3">
+          <h3 className="text-sm font-semibold text-foreground">Metrics Comparison</h3>
+          <p className="text-xs text-muted-foreground">Absolute scores across evaluation metrics</p>
+        </div>
+        <div className="flex flex-col items-center justify-center flex-1 min-h-[260px] text-center p-4 border border-dashed rounded-md bg-muted/20">
+          <p className="text-sm font-medium text-muted-foreground">No named metrics found</p>
+          <p className="text-xs text-muted-foreground/75 mt-1 max-w-sm">
+            Named metrics are generated from assertions that specify a metric name (e.g. rubrics or
+            custom assertions).
+          </p>
+        </div>
+      </div>
     );
+  }
 
-    const evaluations = Object.values(evaluationGroups).flatMap((group, groupIndex) =>
-      group.map((item) => ({
-        ...item,
-        evaluationNumber: groupIndex + 1,
-      })),
-    );
+  return (
+    <div className="flex flex-col h-full">
+      <div className="flex items-center justify-between mb-2">
+        <div>
+          <h3 className="text-sm font-semibold text-foreground">Metrics Comparison</h3>
+          <p className="text-xs text-muted-foreground">Absolute scores across evaluation metrics</p>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 text-xs"
+          onClick={() => setIsStacked((prev) => !prev)}
+        >
+          {isStacked ? 'Stacked' : 'Grouped'}
+        </Button>
+      </div>
 
-    const datasets = evaluations.reduce<
-      Record<number, { x: number; y: number; evalData: ProgressData }[]>
-    >((acc, eval_) => {
-      const passRate = getPassRate(eval_.metrics);
+      <div className="flex flex-wrap items-center gap-1.5 mb-3">
+        <span className="text-xs text-muted-foreground font-medium mr-1">Metrics:</span>
+        {allMetricKeys.map((key) => {
+          const isVisible = visibleMetrics.includes(key);
+          return (
+            <button
+              key={key}
+              type="button"
+              onClick={() => toggleMetric(key)}
+              className={cn(
+                'inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium border transition-colors cursor-pointer',
+                isVisible
+                  ? 'bg-primary/10 text-primary border-primary/30 hover:bg-primary/20'
+                  : 'bg-muted/30 text-muted-foreground border-border hover:bg-muted/50 line-through opacity-60',
+              )}
+            >
+              <span
+                className={cn(
+                  'size-1.5 rounded-full',
+                  isVisible ? 'bg-primary' : 'bg-muted-foreground',
+                )}
+              />
+              {key}
+            </button>
+          );
+        })}
+        {allMetricKeys.length > 2 && (
+          <div className="flex gap-1 ml-auto">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 px-1.5 text-xs text-muted-foreground"
+              onClick={() => setVisibleMetrics([...allMetricKeys])}
+            >
+              All
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 px-1.5 text-xs text-muted-foreground"
+              onClick={() => setVisibleMetrics([])}
+            >
+              None
+            </Button>
+          </div>
+        )}
+      </div>
 
-      if (!acc[eval_.evaluationNumber]) {
-        acc[eval_.evaluationNumber] = [];
-      }
-      acc[eval_.evaluationNumber].push({
-        x: eval_.evaluationNumber,
-        y: passRate,
-        evalData: eval_,
-      });
-      return acc;
-    }, {});
-
-    const chartData = Object.values(datasets).flat();
-
-    // Find the highest pass rate for each evaluation number to connect with a line
-    const highestPassRates = Object.values(datasets).map((group) => {
-      return group.reduce((max, current) => (current.y > max.y ? current : max));
-    });
-
-    const chartOptions = {
-      responsive: true,
-      scales: {
-        x: {
-          type: 'linear' as const,
-          position: 'bottom' as const,
-          title: {
-            display: true,
-            text: 'Evaluation',
-          },
-          ticks: {
-            stepSize: 1,
-          },
-        },
-        y: {
-          title: {
-            display: true,
-            text: 'Pass Rate (%)',
-          },
-        },
-      },
-      plugins: {
-        tooltip: {
-          callbacks: {
-            title: (context: unknown) => {
-              const items = context as TooltipItem<'scatter'>[];
-              const raw = items[0].raw as { evalData: { evalId: string } };
-              return raw.evalData.evalId;
-            },
-            label: (context: unknown) => {
-              const item = (context as TooltipItem<'scatter'>).raw as {
-                x: number;
-                y: number;
-                evalData: ProgressData;
-              };
-              const { evalData } = item;
-              const passRate = getPassRate(evalData.metrics);
-              return [
-                `Label: ${evalData.label}`,
-                `Provider: ${evalData.provider}`,
-                `Pass Rate: ${passRate.toFixed(2)}%`,
-                `Score: ${evalData.metrics.score.toFixed(2)}`,
-              ];
-            },
-          },
-        },
-      },
-      onClick: (_event: unknown, elements: unknown) => {
-        if (Array.isArray(elements) && elements.length > 0) {
-          const index = (elements[0] as { index: number }).index;
-          window.open(EVAL_ROUTES.DETAIL(chartData[index].evalData.evalId), '_blank');
-        }
-      },
-    };
-
-    lineChartInstance.current = new Chart(lineCanvasRef.current, {
-      type: 'scatter',
-      data: {
-        datasets: [
-          {
-            type: 'scatter',
-            data: chartData,
-            pointBackgroundColor: chartData.map((point) =>
-              point.evalData.evalId === evalId ? '#4CAF50' : '#2196F3',
-            ),
-          },
-          {
-            type: 'line',
-            data: highestPassRates,
-            borderColor: '#2196F3AA',
-            borderWidth: 2,
-            pointRadius: 0,
-          },
-        ],
-      },
-      options: chartOptions,
-    });
-  }, [progressData, evalId]);
-
-  return <canvas ref={lineCanvasRef} style={{ maxHeight: '300px', cursor: 'pointer' }} />;
+      <div className="relative flex-1 min-h-[260px] w-full">
+        {activeMetricKeys.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full text-center p-4 border border-dashed rounded-md bg-muted/20">
+            <p className="text-sm font-medium text-muted-foreground">All metrics hidden</p>
+            <p className="text-xs text-muted-foreground/75 mt-1">
+              Click a metric above or &quot;All&quot; to show metrics on the chart.
+            </p>
+          </div>
+        ) : (
+          <canvas ref={canvasRef} style={{ maxHeight: '300px', width: '100%' }} />
+        )}
+      </div>
+    </div>
+  );
 }
 
-function ResultsCharts({ scores }: ResultsChartsProps) {
-  const [
-    showPerformanceOverTimeChart,
-    //setShowPerformanceOverTimeChart
-  ] = useState(false);
-
-  // Update Chart.js defaults when theme changes
-  // useLayoutEffect ensures defaults are set before charts render
+function ResultsCharts({ scores: _scores }: ResultsChartsProps) {
   useLayoutEffect(() => {
     const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
     Chart.defaults.color = isDark ? '#aaa' : '#666';
   }, []);
 
-  // NOTE: Parent component is responsible for conditionally rendering the charts based on the table being
-  // non-null.
-  const { table, evalId } = useTableStore();
+  const { table } = useTableStore();
 
-  // TODO(Will): Release performance over time chart; it's been hidden for 10 months.
-  // useEffect(() => {
-  //   if (config?.description && import.meta.env.VITE_PROMPTFOO_EXPERIMENTAL) {
-  //     const filteredEvals = recentEvals.filter(
-  //       (evaluation) => evaluation.description === config.description,
-  //     );
-  //     if (filteredEvals.length > 1) {
-  //       setShowPerformanceOverTimeChart(true);
-  //     }
-  //   } else {
-  //     setShowPerformanceOverTimeChart(false);
-  //   }
-  // }, [config?.description, recentEvals]);
-
-  // if (table.head.prompts.length < 2 && showPerformanceOverTimeChart) {
-  //   return (
-  //     <ErrorBoundary fallback={null}>
-  //       <Paper sx={{ position: 'relative', padding: 3, mt: 2 }}>
-  //         <IconButton
-  //           style={{ position: 'absolute', right: 0, top: 0 }}
-  //           onClick={() => handleHideCharts()}
-  //         >
-  //           <CloseIcon />
-  //         </IconButton>
-
-  //         <div style={{ width: '100%' }}>
-  //           <PerformanceOverTimeChart table={table} evalId={evalId} />
-  //         </div>
-  //       </Paper>
-  //     </ErrorBoundary>
-  //   );
-  // }
-
-  const chartWidth = showPerformanceOverTimeChart ? '25%' : '33%';
-
-  const scoreSet = new Set(scores);
+  if (!table) {
+    return null;
+  }
 
   return (
     <ErrorBoundary fallback={null}>
-      <div className="relative p-6 mt-2 bg-card rounded-lg border border-border shadow-sm">
-        <div className="flex justify-between w-full">
-          <div style={{ width: chartWidth }}>
-            <PassRateChart table={table!} />
+      <div
+        className="relative p-6 mt-2 bg-card rounded-lg border border-border shadow-sm"
+        data-testid="results-charts"
+      >
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 w-full">
+          <div className="flex flex-col min-h-[360px] p-4 bg-background/50 rounded-lg border border-border">
+            <DescriptionResultsChart table={table} />
           </div>
-          <div style={{ width: chartWidth }}>
-            {scoreSet.size <= 3 &&
-            Object.keys(table!.head.prompts[0].metrics?.namedScores || {}).length > 1 ? (
-              <MetricChart table={table!} />
-            ) : (
-              <HistogramChart table={table!} />
-            )}
+          <div className="flex flex-col min-h-[360px] p-4 bg-background/50 rounded-lg border border-border">
+            <MetricChart table={table} />
           </div>
-          <div style={{ width: chartWidth }}>
-            <ScatterChart table={table!} />
-          </div>
-          {showPerformanceOverTimeChart && (
-            <div style={{ width: chartWidth }}>
-              <PerformanceOverTimeChart table={table!} evalId={evalId} />
-            </div>
-          )}
         </div>
       </div>
     </ErrorBoundary>
