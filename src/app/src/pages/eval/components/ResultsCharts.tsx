@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 
 import { Button } from '@app/components/ui/button';
 import {
@@ -22,7 +22,7 @@ import {
   type TooltipItem,
 } from 'chart.js';
 import { ErrorBoundary } from 'react-error-boundary';
-import { useTableStore } from './store';
+import { useResultsViewSettingsStore, useTableStore } from './store';
 import type { EvaluateTable } from '@promptfoo/types';
 
 export interface ResultsChartsProps {
@@ -33,28 +33,91 @@ export interface ChartProps {
   table: EvaluateTable;
 }
 
-const COLOR_PALETTE = [
-  '#3b82f6', // blue
-  '#8b5cf6', // purple
-  '#ec4899', // pink
-  '#f59e0b', // amber
-  '#10b981', // emerald
-  '#06b6d4', // cyan
-  '#f97316', // orange
-  '#6366f1', // indigo
-  '#14b8a6', // teal
-  '#a855f7', // violet
+export interface ModelColor {
+  pass: string;
+  fail: string;
+  failBorder: string;
+}
+
+export const MODEL_COLORS: ModelColor[] = [
+  {
+    pass: '#2563eb', // Blue
+    fail: 'rgba(37, 99, 235, 0.28)',
+    failBorder: 'rgba(37, 99, 235, 0.65)',
+  },
+  {
+    pass: '#7c3aed', // Purple / Violet
+    fail: 'rgba(124, 58, 237, 0.28)',
+    failBorder: 'rgba(124, 58, 237, 0.65)',
+  },
+  {
+    pass: '#059669', // Emerald
+    fail: 'rgba(5, 150, 105, 0.28)',
+    failBorder: 'rgba(5, 150, 105, 0.65)',
+  },
+  {
+    pass: '#d97706', // Amber
+    fail: 'rgba(217, 119, 6, 0.28)',
+    failBorder: 'rgba(217, 119, 6, 0.65)',
+  },
+  {
+    pass: '#db2777', // Pink
+    fail: 'rgba(219, 39, 119, 0.28)',
+    failBorder: 'rgba(219, 39, 119, 0.65)',
+  },
+  {
+    pass: '#0891b2', // Cyan
+    fail: 'rgba(8, 145, 178, 0.28)',
+    failBorder: 'rgba(8, 145, 178, 0.65)',
+  },
+  {
+    pass: '#ea580c', // Orange
+    fail: 'rgba(234, 88, 12, 0.28)',
+    failBorder: 'rgba(234, 88, 12, 0.65)',
+  },
+  {
+    pass: '#4f46e5', // Indigo
+    fail: 'rgba(79, 70, 229, 0.28)',
+    failBorder: 'rgba(79, 70, 229, 0.65)',
+  },
 ];
 
-const PASS_COLOR = '#22c55e'; // Green
-const FAIL_COLOR = '#ef4444'; // Red
+export function getPromptDisplayLabel(
+  prompt: { label?: string; provider?: string },
+  promptIndex: number,
+  fallbackDescription?: string,
+): string {
+  let label = prompt.label || '';
+
+  // If label has [eval-xxx], replace it with [description] if description is available
+  if (fallbackDescription) {
+    label = label.replace(/\[eval-[a-zA-Z0-9_\-.:]+\]/g, `[${fallbackDescription}]`);
+    if (/^eval-[a-zA-Z0-9_\-.:]+$/.test(label.trim())) {
+      label = fallbackDescription;
+    }
+  }
+
+  const trimmed = label.trim();
+  if (trimmed) {
+    return trimmed;
+  }
+
+  if (fallbackDescription) {
+    return prompt.provider ? `[${fallbackDescription}] ${prompt.provider}` : fallbackDescription;
+  }
+
+  return prompt.provider || `Prompt ${promptIndex + 1}`;
+}
 
 Chart.register(BarController, CategoryScale, LinearScale, BarElement, Tooltip, Legend, Colors);
 
 export function DescriptionResultsChart({ table }: ChartProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const chartInstance = useRef<Chart | null>(null);
-  const [promptView, setPromptView] = useState<string>('compare');
+  const { descriptionChartPromptView: promptView, setDescriptionChartPromptView: setPromptView } =
+    useResultsViewSettingsStore();
+  const { config } = useTableStore();
+  const mainDescription = config?.description;
 
   const prompts = table.head.prompts || [];
   const rows = table.body || [];
@@ -88,6 +151,9 @@ export function DescriptionResultsChart({ table }: ChartProps) {
 
     if (prompts.length <= 1 || promptView === '0') {
       const pIdx = 0;
+      const pLabel = getPromptDisplayLabel(prompts[pIdx] || {}, pIdx, mainDescription);
+      const color = MODEL_COLORS[0];
+
       const passCounts = descriptions.map((desc) =>
         rows.reduce((acc, row) => {
           const d = row.description?.trim() || row.test?.description?.trim() || '(No description)';
@@ -110,19 +176,22 @@ export function DescriptionResultsChart({ table }: ChartProps) {
 
       datasets = [
         {
-          label: 'Pass',
+          label: `${pLabel} (Pass)`,
           data: passCounts,
-          backgroundColor: PASS_COLOR,
+          backgroundColor: color.pass,
           stack: 'results',
         },
         {
-          label: 'Fail',
+          label: `${pLabel} (Fail)`,
           data: failCounts,
-          backgroundColor: FAIL_COLOR,
+          backgroundColor: color.fail,
+          borderColor: color.failBorder,
+          borderWidth: 1,
           stack: 'results',
         },
       ];
     } else if (promptView === 'combined') {
+      const color = MODEL_COLORS[0];
       const passCounts = descriptions.map((desc) =>
         rows.reduce((acc, row) => {
           const d = row.description?.trim() || row.test?.description?.trim() || '(No description)';
@@ -149,18 +218,24 @@ export function DescriptionResultsChart({ table }: ChartProps) {
         {
           label: 'Pass',
           data: passCounts,
-          backgroundColor: PASS_COLOR,
+          backgroundColor: color.pass,
           stack: 'results',
         },
         {
           label: 'Fail',
           data: failCounts,
-          backgroundColor: FAIL_COLOR,
+          backgroundColor: color.fail,
+          borderColor: color.failBorder,
+          borderWidth: 1,
           stack: 'results',
         },
       ];
     } else if (promptView !== 'compare' && !Number.isNaN(Number(promptView))) {
       const pIdx = Number(promptView);
+      const prompt = prompts[pIdx];
+      const pLabel = getPromptDisplayLabel(prompt || {}, pIdx, mainDescription);
+      const color = MODEL_COLORS[pIdx % MODEL_COLORS.length];
+
       const passCounts = descriptions.map((desc) =>
         rows.reduce((acc, row) => {
           const d = row.description?.trim() || row.test?.description?.trim() || '(No description)';
@@ -183,22 +258,26 @@ export function DescriptionResultsChart({ table }: ChartProps) {
 
       datasets = [
         {
-          label: 'Pass',
+          label: `${pLabel} (Pass)`,
           data: passCounts,
-          backgroundColor: PASS_COLOR,
+          backgroundColor: color.pass,
           stack: 'results',
         },
         {
-          label: 'Fail',
+          label: `${pLabel} (Fail)`,
           data: failCounts,
-          backgroundColor: FAIL_COLOR,
+          backgroundColor: color.fail,
+          borderColor: color.failBorder,
+          borderWidth: 1,
           stack: 'results',
         },
       ];
     } else {
-      // compare mode: each prompt gets its own stack
+      // compare mode: each prompt gets its own stack with distinct pass & quieter fail color
       datasets = prompts.flatMap((prompt, pIdx) => {
-        const pLabel = prompt.label || prompt.provider || `Prompt ${pIdx + 1}`;
+        const pLabel = getPromptDisplayLabel(prompt, pIdx, mainDescription);
+        const color = MODEL_COLORS[pIdx % MODEL_COLORS.length];
+
         const passCounts = descriptions.map((desc) =>
           rows.reduce((acc, row) => {
             const d =
@@ -225,13 +304,15 @@ export function DescriptionResultsChart({ table }: ChartProps) {
           {
             label: `${pLabel} (Pass)`,
             data: passCounts,
-            backgroundColor: PASS_COLOR,
+            backgroundColor: color.pass,
             stack: `prompt-${pIdx}`,
           },
           {
             label: `${pLabel} (Fail)`,
             data: failCounts,
-            backgroundColor: FAIL_COLOR,
+            backgroundColor: color.fail,
+            borderColor: color.failBorder,
+            borderWidth: 1,
             stack: `prompt-${pIdx}`,
           },
         ];
@@ -289,27 +370,16 @@ export function DescriptionResultsChart({ table }: ChartProps) {
             display: true,
             position: 'top' as const,
             labels: {
-              filter(legendItem: { datasetIndex?: number }) {
-                // When in compare mode, avoid duplicating Pass/Fail in legend
-                return legendItem.datasetIndex === 0 || legendItem.datasetIndex === 1;
-              },
-              generateLabels(_chart: Chart) {
-                return [
-                  {
-                    text: 'Pass',
-                    fillStyle: PASS_COLOR,
-                    strokeStyle: PASS_COLOR,
-                    hidden: false,
-                    datasetIndex: 0,
-                  },
-                  {
-                    text: 'Fail',
-                    fillStyle: FAIL_COLOR,
-                    strokeStyle: FAIL_COLOR,
-                    hidden: false,
-                    datasetIndex: 1,
-                  },
-                ];
+              generateLabels(chart: Chart) {
+                return chart.data.datasets.map((dataset, idx) => ({
+                  text: dataset.label || '',
+                  fillStyle: dataset.backgroundColor as string,
+                  strokeStyle:
+                    (dataset.borderColor as string) || (dataset.backgroundColor as string),
+                  lineWidth: dataset.borderWidth ? Number(dataset.borderWidth) : 0,
+                  hidden: !chart.isDatasetVisible(idx),
+                  datasetIndex: idx,
+                }));
               },
             },
           },
@@ -337,7 +407,7 @@ export function DescriptionResultsChart({ table }: ChartProps) {
         chartInstance.current = null;
       }
     };
-  }, [descriptions, promptView, prompts, rows]);
+  }, [descriptions, mainDescription, promptView, prompts, rows]);
 
   if (rows.length === 0) {
     return (
@@ -358,7 +428,7 @@ export function DescriptionResultsChart({ table }: ChartProps) {
         </div>
         {prompts.length > 1 && (
           <Select value={promptView} onValueChange={setPromptView}>
-            <SelectTrigger className="w-48 h-8 text-xs">
+            <SelectTrigger className="w-56 h-8 text-xs">
               <SelectValue placeholder="Select model" />
             </SelectTrigger>
             <SelectContent>
@@ -366,7 +436,7 @@ export function DescriptionResultsChart({ table }: ChartProps) {
               <SelectItem value="combined">All models (combined)</SelectItem>
               {prompts.map((prompt, idx) => (
                 <SelectItem key={idx} value={String(idx)}>
-                  {prompt.label || prompt.provider || `Prompt ${idx + 1}`}
+                  {getPromptDisplayLabel(prompt, idx, mainDescription)}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -384,6 +454,15 @@ export function MetricChart({ table }: ChartProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const chartInstance = useRef<Chart | null>(null);
 
+  const {
+    metricChartStacked: isStacked,
+    setMetricChartStacked: setIsStacked,
+    metricChartHiddenMetrics,
+    setMetricChartHiddenMetrics,
+  } = useResultsViewSettingsStore();
+  const { config } = useTableStore();
+  const mainDescription = config?.description;
+
   const prompts = table.head.prompts || [];
 
   const allMetricKeys = useMemo(() => {
@@ -398,23 +477,17 @@ export function MetricChart({ table }: ChartProps) {
     return keys;
   }, [prompts]);
 
-  const [visibleMetrics, setVisibleMetrics] = useState<string[]>(allMetricKeys);
-  const [isStacked, setIsStacked] = useState<boolean>(false);
-
-  // Sync visible metrics when available keys change
-  useEffect(() => {
-    setVisibleMetrics(allMetricKeys);
-  }, [allMetricKeys]);
-
   const toggleMetric = (key: string) => {
-    setVisibleMetrics((prev) =>
-      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key],
-    );
+    if (metricChartHiddenMetrics.includes(key)) {
+      setMetricChartHiddenMetrics(metricChartHiddenMetrics.filter((k) => k !== key));
+    } else {
+      setMetricChartHiddenMetrics([...metricChartHiddenMetrics, key]);
+    }
   };
 
   const activeMetricKeys = useMemo(() => {
-    return allMetricKeys.filter((key) => visibleMetrics.includes(key));
-  }, [allMetricKeys, visibleMetrics]);
+    return allMetricKeys.filter((key) => !metricChartHiddenMetrics.includes(key));
+  }, [allMetricKeys, metricChartHiddenMetrics]);
 
   useEffect(() => {
     if (!canvasRef.current) {
@@ -431,15 +504,17 @@ export function MetricChart({ table }: ChartProps) {
     }
 
     const datasets = prompts.map((prompt, promptIdx) => {
+      const pLabel = getPromptDisplayLabel(prompt, promptIdx, mainDescription);
+      const color = MODEL_COLORS[promptIdx % MODEL_COLORS.length];
       const data = activeMetricKeys.map((key) => {
         const val = prompt.metrics?.namedScores?.[key];
         return typeof val === 'number' && Number.isFinite(val) ? val : 0;
       });
 
       return {
-        label: prompt.label || prompt.provider || `Prompt ${promptIdx + 1}`,
+        label: pLabel,
         data,
-        backgroundColor: COLOR_PALETTE[promptIdx % COLOR_PALETTE.length],
+        backgroundColor: color.pass,
         stack: isStacked ? 'metrics-stack' : undefined,
       };
     });
@@ -511,7 +586,7 @@ export function MetricChart({ table }: ChartProps) {
         chartInstance.current = null;
       }
     };
-  }, [activeMetricKeys, isStacked, prompts]);
+  }, [activeMetricKeys, isStacked, mainDescription, prompts]);
 
   if (allMetricKeys.length === 0) {
     return (
@@ -542,7 +617,7 @@ export function MetricChart({ table }: ChartProps) {
           variant="outline"
           size="sm"
           className="h-8 text-xs"
-          onClick={() => setIsStacked((prev) => !prev)}
+          onClick={() => setIsStacked(!isStacked)}
         >
           {isStacked ? 'Stacked' : 'Grouped'}
         </Button>
@@ -551,7 +626,7 @@ export function MetricChart({ table }: ChartProps) {
       <div className="flex flex-wrap items-center gap-1.5 mb-3">
         <span className="text-xs text-muted-foreground font-medium mr-1">Metrics:</span>
         {allMetricKeys.map((key) => {
-          const isVisible = visibleMetrics.includes(key);
+          const isVisible = !metricChartHiddenMetrics.includes(key);
           return (
             <button
               key={key}
@@ -580,7 +655,7 @@ export function MetricChart({ table }: ChartProps) {
               variant="ghost"
               size="sm"
               className="h-6 px-1.5 text-xs text-muted-foreground"
-              onClick={() => setVisibleMetrics([...allMetricKeys])}
+              onClick={() => setMetricChartHiddenMetrics([])}
             >
               All
             </Button>
@@ -588,7 +663,7 @@ export function MetricChart({ table }: ChartProps) {
               variant="ghost"
               size="sm"
               className="h-6 px-1.5 text-xs text-muted-foreground"
-              onClick={() => setVisibleMetrics([])}
+              onClick={() => setMetricChartHiddenMetrics([...allMetricKeys])}
             >
               None
             </Button>

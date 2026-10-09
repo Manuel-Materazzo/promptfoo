@@ -182,10 +182,15 @@ export function ResultsChartsSection({
   resultsChartsUnavailableReasons,
   children,
 }: ResultsChartsSectionProps) {
+  const settingsStore = useResultsViewSettingsStore();
+  const showResultsCharts = settingsStore?.showResultsCharts ?? true;
+  const setShowResultsCharts = settingsStore?.setShowResultsCharts;
+
   const [renderResultsCharts, setRenderResultsCharts] = React.useState(
     !isRedteamEval &&
       window.innerHeight >= MIN_VIEWPORT_HEIGHT_FOR_CHARTS &&
-      canRenderResultsCharts,
+      canRenderResultsCharts &&
+      showResultsCharts,
   );
 
   if (isRedteamEval) {
@@ -193,7 +198,17 @@ export function ResultsChartsSection({
   }
 
   const toggleButton = (
-    <Button variant="ghost" size="sm" onClick={() => setRenderResultsCharts((prev) => !prev)}>
+    <Button
+      variant="ghost"
+      size="sm"
+      onClick={() => {
+        setRenderResultsCharts((prev) => {
+          const next = !prev;
+          setShowResultsCharts?.(next);
+          return next;
+        });
+      }}
+    >
       <BarChart className="size-4 mr-2" />
       {renderResultsCharts ? 'Hide Charts' : 'Show Charts'}
     </Button>
@@ -274,6 +289,8 @@ export default function ResultsView({
     setComparisonEvalIds,
     hiddenVarNamesBySchema,
     setHiddenVarNamesForSchema,
+    resultsTableZoom = 1,
+    setResultsTableZoom = () => {},
   } = useResultsViewSettingsStore();
 
   const { updateConfig } = useMainStore();
@@ -767,8 +784,6 @@ export default function ResultsView({
 
   const canRenderResultsCharts = resultsChartsUnavailableReasons.length === 0;
   const appliedFilters = React.useMemo(() => Object.values(filters.values), [filters.values]);
-
-  const [resultsTableZoom, setResultsTableZoom] = React.useState(1);
 
   const evalActionsMenuItems = (
     <>

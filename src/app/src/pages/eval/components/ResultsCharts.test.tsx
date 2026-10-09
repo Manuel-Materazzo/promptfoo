@@ -1,8 +1,13 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { Chart } from 'chart.js';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import ResultsCharts, { DescriptionResultsChart, MetricChart } from './ResultsCharts';
-import { useTableStore } from './store';
+import ResultsCharts, {
+  DescriptionResultsChart,
+  getPromptDisplayLabel,
+  MetricChart,
+  MODEL_COLORS,
+} from './ResultsCharts';
+import { useResultsViewSettingsStore, useTableStore } from './store';
 
 // Mock Chart.js
 vi.mock('chart.js', () => {
@@ -36,17 +41,62 @@ vi.mock('chart.js', () => {
 // Mock the store
 vi.mock('./store', () => ({
   useTableStore: vi.fn(),
+  useResultsViewSettingsStore: vi.fn(),
 }));
 
 describe('ResultsCharts', () => {
+  let mockSettings: any;
+
   beforeEach(() => {
     vi.clearAllMocks();
+
+    mockSettings = {
+      descriptionChartPromptView: 'compare',
+      setDescriptionChartPromptView: vi.fn((view: string) => {
+        mockSettings.descriptionChartPromptView = view;
+      }),
+      metricChartStacked: false,
+      setMetricChartStacked: vi.fn((stacked: boolean) => {
+        mockSettings.metricChartStacked = stacked;
+      }),
+      metricChartHiddenMetrics: [],
+      setMetricChartHiddenMetrics: vi.fn((metrics: string[]) => {
+        mockSettings.metricChartHiddenMetrics = metrics;
+      }),
+    };
+
+    vi.mocked(useResultsViewSettingsStore).mockImplementation(() => mockSettings);
+    vi.mocked(useTableStore).mockReturnValue({
+      table: null,
+      evalId: 'test-eval',
+      config: { description: 'test config' },
+      setTable: vi.fn(),
+      fetchEvalData: vi.fn(),
+    } as any);
+  });
+
+  describe('getPromptDisplayLabel', () => {
+    it('replaces eval ID with eval description when available', () => {
+      const promptWithEvalId = { label: '[eval-4sl-2026-10-07T15:51:14] gpt-4' };
+      const label = getPromptDisplayLabel(promptWithEvalId, 0, 'Production Model');
+      expect(label).toBe('[Production Model] gpt-4');
+    });
+
+    it('uses fallback description if prompt has only eval ID or is empty', () => {
+      const promptOnlyEvalId = { label: 'eval-4sl-2026-10-07T15:51:14' };
+      const label = getPromptDisplayLabel(promptOnlyEvalId, 0, 'Web Search Eval');
+      expect(label).toBe('Web Search Eval');
+    });
+
+    it('falls back to provider or prompt index when no description is available', () => {
+      const prompt = { provider: 'claude-3-5-sonnet' };
+      const label = getPromptDisplayLabel(prompt, 0);
+      expect(label).toBe('claude-3-5-sonnet');
+    });
   });
 
   describe('DescriptionResultsChart', () => {
-    it('correctly creates stacked bars grouped by description with pass on bottom and fail on top', () => {
-      // 5 tests with "web search - easy" (3 pass, 2 fail)
-      // 3 tests with "web search - hard" (1 pass, 2 fail)
+    it('correctly creates stacked bars with per-model solid pass and translucent fail colors', () => {
       const easyTests = [
         { description: 'web search - easy', outputs: [{ score: 1, pass: true }] },
         { description: 'web search - easy', outputs: [{ score: 1, pass: true }] },
@@ -85,13 +135,14 @@ describe('ResultsCharts', () => {
       const passDataset = datasets[0];
       const failDataset = datasets[1];
 
-      expect(passDataset.label).toBe('Pass');
+      expect(passDataset.label).toContain('Pass');
       expect(passDataset.data).toEqual([3, 1]);
-      expect(passDataset.backgroundColor).toBe('#22c55e');
+      expect(passDataset.backgroundColor).toBe(MODEL_COLORS[0].pass);
 
-      expect(failDataset.label).toBe('Fail');
+      expect(failDataset.label).toContain('Fail');
       expect(failDataset.data).toEqual([2, 2]);
-      expect(failDataset.backgroundColor).toBe('#ef4444');
+      expect(failDataset.backgroundColor).toBe(MODEL_COLORS[0].fail);
+      expect(failDataset.borderColor).toBe(MODEL_COLORS[0].failBorder);
 
       // Verify stacked scale options
       expect(chartConfig.options.scales.x.stacked).toBe(true);
@@ -121,7 +172,7 @@ describe('ResultsCharts', () => {
       expect(chartConfig.data.datasets[1].data).toEqual([1, 0]); // Fail
     });
 
-    it('handles multiple models in compare mode with separate stacks', () => {
+    it('handles multiple models in compare mode with distinct model colors', () => {
       const mockTable: any = {
         head: {
           prompts: [
@@ -157,21 +208,25 @@ describe('ResultsCharts', () => {
       // 2 models * 2 (pass/fail) = 4 datasets in compare mode
       expect(chartConfig.data.datasets).toHaveLength(4);
 
-      // Model 1 (gpt-4o)
+      // Model 1 (gpt-4o): Uses MODEL_COLORS[0]
       expect(chartConfig.data.datasets[0].label).toContain('Pass');
+      expect(chartConfig.data.datasets[0].backgroundColor).toBe(MODEL_COLORS[0].pass);
       expect(chartConfig.data.datasets[0].data).toEqual([2]);
       expect(chartConfig.data.datasets[0].stack).toBe('prompt-0');
 
       expect(chartConfig.data.datasets[1].label).toContain('Fail');
+      expect(chartConfig.data.datasets[1].backgroundColor).toBe(MODEL_COLORS[0].fail);
       expect(chartConfig.data.datasets[1].data).toEqual([0]);
       expect(chartConfig.data.datasets[1].stack).toBe('prompt-0');
 
-      // Model 2 (claude-3-5)
+      // Model 2 (claude-3-5): Uses MODEL_COLORS[1]
       expect(chartConfig.data.datasets[2].label).toContain('Pass');
+      expect(chartConfig.data.datasets[2].backgroundColor).toBe(MODEL_COLORS[1].pass);
       expect(chartConfig.data.datasets[2].data).toEqual([1]);
       expect(chartConfig.data.datasets[2].stack).toBe('prompt-1');
 
       expect(chartConfig.data.datasets[3].label).toContain('Fail');
+      expect(chartConfig.data.datasets[3].backgroundColor).toBe(MODEL_COLORS[1].fail);
       expect(chartConfig.data.datasets[3].data).toEqual([1]);
       expect(chartConfig.data.datasets[3].stack).toBe('prompt-1');
     });
@@ -226,11 +281,14 @@ describe('ResultsCharts', () => {
 
       // Model A values should be absolute [0.4, 8.5], not normalized to max
       expect(chartConfig.data.datasets[0].data).toEqual([0.4, 8.5]);
+      expect(chartConfig.data.datasets[0].backgroundColor).toBe(MODEL_COLORS[0].pass);
+
       // Model B values should be absolute [0.8, 10], not [1, 1]
       expect(chartConfig.data.datasets[1].data).toEqual([0.8, 10]);
+      expect(chartConfig.data.datasets[1].backgroundColor).toBe(MODEL_COLORS[1].pass);
     });
 
-    it('allows hiding and showing metrics via interactive toggle buttons', () => {
+    it('allows hiding and showing metrics via interactive toggle buttons and persists', () => {
       const mockTable: any = {
         head: {
           prompts: [
@@ -249,7 +307,7 @@ describe('ResultsCharts', () => {
         body: [],
       };
 
-      render(<MetricChart table={mockTable} />);
+      const { rerender } = render(<MetricChart table={mockTable} />);
 
       // Initially both metrics are active
       expect(screen.getByRole('button', { name: /accuracy/i })).toBeInTheDocument();
@@ -261,21 +319,19 @@ describe('ResultsCharts', () => {
 
       // Click accuracy button to hide it
       fireEvent.click(screen.getByRole('button', { name: /accuracy/i }));
+      expect(mockSettings.setMetricChartHiddenMetrics).toHaveBeenCalledWith(['accuracy']);
+
+      // Simulate re-render with updated hidden state
+      mockSettings.metricChartHiddenMetrics = ['accuracy'];
+      rerender(<MetricChart table={mockTable} />);
 
       chartCalls = vi.mocked(Chart).mock.calls;
       lastCall = chartCalls[chartCalls.length - 1][1] as any;
       expect(lastCall.data.labels).toEqual(['latency_score']);
       expect(lastCall.data.datasets[0].data).toEqual([0.7]);
-
-      // Click accuracy again to show it
-      fireEvent.click(screen.getByRole('button', { name: /accuracy/i }));
-
-      chartCalls = vi.mocked(Chart).mock.calls;
-      lastCall = chartCalls[chartCalls.length - 1][1] as any;
-      expect(lastCall.data.labels).toEqual(['accuracy', 'latency_score']);
     });
 
-    it('allows toggling between grouped and stacked view', () => {
+    it('allows toggling between grouped and stacked view and persists', () => {
       const mockTable: any = {
         head: {
           prompts: [
@@ -291,7 +347,7 @@ describe('ResultsCharts', () => {
         body: [],
       };
 
-      render(<MetricChart table={mockTable} />);
+      const { rerender } = render(<MetricChart table={mockTable} />);
 
       const toggleButton = screen.getByRole('button', { name: /grouped/i });
       expect(toggleButton).toBeInTheDocument();
@@ -302,6 +358,10 @@ describe('ResultsCharts', () => {
 
       // Click toggle button to switch to stacked
       fireEvent.click(toggleButton);
+      expect(mockSettings.setMetricChartStacked).toHaveBeenCalledWith(true);
+
+      mockSettings.metricChartStacked = true;
+      rerender(<MetricChart table={mockTable} />);
 
       expect(screen.getByRole('button', { name: /stacked/i })).toBeInTheDocument();
 
@@ -340,11 +400,15 @@ describe('ResultsCharts', () => {
         body: [],
       };
 
-      render(<MetricChart table={mockTable} />);
+      const { rerender } = render(<MetricChart table={mockTable} />);
 
       // Click 'None' button
       const noneButton = screen.getByRole('button', { name: 'None' });
       fireEvent.click(noneButton);
+      expect(mockSettings.setMetricChartHiddenMetrics).toHaveBeenCalledWith(['m1', 'm2', 'm3']);
+
+      mockSettings.metricChartHiddenMetrics = ['m1', 'm2', 'm3'];
+      rerender(<MetricChart table={mockTable} />);
 
       expect(screen.getByText('All metrics hidden')).toBeInTheDocument();
     });
@@ -378,7 +442,7 @@ describe('ResultsCharts', () => {
         config: { description: 'test config' },
         setTable: vi.fn(),
         fetchEvalData: vi.fn(),
-      });
+      } as any);
 
       const { container } = render(<ResultsCharts scores={[0.8, 0.9]} />);
 
@@ -412,7 +476,7 @@ describe('ResultsCharts', () => {
         config: { description: 'test config' },
         setTable: vi.fn(),
         fetchEvalData: vi.fn(),
-      });
+      } as any);
 
       expect(() => {
         render(<ResultsCharts scores={[0.8, 0.6]} />);

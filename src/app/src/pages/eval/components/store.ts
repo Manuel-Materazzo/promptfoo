@@ -438,6 +438,21 @@ interface SettingsState {
   setMaxImageWidth: (maxImageWidth: number) => void;
   maxImageHeight: number;
   setMaxImageHeight: (maxImageHeight: number) => void;
+
+  resultsTableZoom: number;
+  setResultsTableZoom: (resultsTableZoom: number) => void;
+
+  showResultsCharts: boolean;
+  setShowResultsCharts: (showResultsCharts: boolean) => void;
+
+  descriptionChartPromptView: string;
+  setDescriptionChartPromptView: (descriptionChartPromptView: string) => void;
+
+  metricChartStacked: boolean;
+  setMetricChartStacked: (metricChartStacked: boolean) => void;
+
+  metricChartHiddenMetrics: string[];
+  setMetricChartHiddenMetrics: (metricChartHiddenMetrics: string[]) => void;
 }
 
 export const useResultsViewSettingsStore = create<SettingsState>()(
@@ -492,16 +507,50 @@ export const useResultsViewSettingsStore = create<SettingsState>()(
       setMaxImageWidth: (maxImageWidth: number) => set(() => ({ maxImageWidth })),
       maxImageHeight: 300,
       setMaxImageHeight: (maxImageHeight: number) => set(() => ({ maxImageHeight })),
+
+      resultsTableZoom: 1,
+      setResultsTableZoom: (resultsTableZoom: number) => set(() => ({ resultsTableZoom })),
+
+      showResultsCharts: true,
+      setShowResultsCharts: (showResultsCharts: boolean) => set(() => ({ showResultsCharts })),
+
+      descriptionChartPromptView: 'compare',
+      setDescriptionChartPromptView: (descriptionChartPromptView: string) =>
+        set(() => ({ descriptionChartPromptView })),
+
+      metricChartStacked: false,
+      setMetricChartStacked: (metricChartStacked: boolean) => set(() => ({ metricChartStacked })),
+
+      metricChartHiddenMetrics: [],
+      setMetricChartHiddenMetrics: (metricChartHiddenMetrics: string[]) =>
+        set(() => ({ metricChartHiddenMetrics })),
     }),
     {
       name: 'eval-settings',
-      version: 2,
+      version: 3,
       migrate: (persistedState, version) => {
         const state = persistedState as Record<string, unknown>;
         if (version < 2) {
           // Remove old global hiddenVarNames, initialize new schema-based storage
           delete state.hiddenVarNames;
           state.hiddenVarNamesBySchema = {};
+        }
+        if (version < 3) {
+          if (state.resultsTableZoom === undefined) {
+            state.resultsTableZoom = 1;
+          }
+          if (state.showResultsCharts === undefined) {
+            state.showResultsCharts = true;
+          }
+          if (state.descriptionChartPromptView === undefined) {
+            state.descriptionChartPromptView = 'compare';
+          }
+          if (state.metricChartStacked === undefined) {
+            state.metricChartStacked = false;
+          }
+          if (!Array.isArray(state.metricChartHiddenMetrics)) {
+            state.metricChartHiddenMetrics = [];
+          }
         }
         return state as typeof persistedState;
       },

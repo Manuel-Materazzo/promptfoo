@@ -629,23 +629,26 @@ export function getEvalTablePromptStrippedPayload(
 export function mergeComparisonTables(
   mainEvalId: string,
   mainTable: TablePageResult,
-  comparisonData: Array<{ evalId: string; table: TablePageResult }>,
+  comparisonData: Array<{ evalId: string; table: TablePageResult; description?: string | null }>,
+  mainEvalDescription?: string | null,
 ): TablePageResult {
+  const mainPrefix = mainEvalDescription || mainEvalId;
   return {
     head: {
       prompts: [
-        // Main eval prompts with eval ID prefix
+        // Main eval prompts with eval description or ID prefix
         ...mainTable.head.prompts.map((prompt) => ({
           ...prompt,
-          label: `[${mainEvalId}] ${prompt.label || ''}`,
+          label: prompt.label ? `[${mainPrefix}] ${prompt.label}` : `[${mainPrefix}]`,
         })),
-        // Comparison eval prompts with their eval ID prefixes
-        ...comparisonData.flatMap(({ evalId, table }) =>
-          table.head.prompts.map((prompt) => ({
+        // Comparison eval prompts with their eval description or ID prefixes
+        ...comparisonData.flatMap(({ evalId, table, description }) => {
+          const compPrefix = description || evalId;
+          return table.head.prompts.map((prompt) => ({
             ...prompt,
-            label: `[${evalId}] ${prompt.label || ''}`,
-          })),
-        ),
+            label: prompt.label ? `[${compPrefix}] ${prompt.label}` : `[${compPrefix}]`,
+          }));
+        }),
       ],
       vars: mainTable.head.vars,
     },
@@ -725,12 +728,21 @@ export async function generateEvalCsv(
           filters: options.filters,
         });
 
-        return { evalId: comparisonEval.id, table };
+        return {
+          evalId: comparisonEval.id,
+          description: comparisonEval.description || undefined,
+          table,
+        };
       }),
     );
 
     // Merge tables for comparison export
-    finalTable = mergeComparisonTables(eval_.id, mainTable, comparisonData);
+    finalTable = mergeComparisonTables(
+      eval_.id,
+      mainTable,
+      comparisonData,
+      eval_.description || undefined,
+    );
   }
 
   return evalTableToCsv(finalTable, {

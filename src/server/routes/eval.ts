@@ -387,7 +387,11 @@ evalRouter.get('/:id/table', async (req: Request, res: Response): Promise<void> 
           searchQuery: searchText,
           filters,
         });
-        return { evalId: comparisonEval_.id, table: comparisonTable };
+        return {
+          evalId: comparisonEval_.id,
+          description: comparisonEval_.description || undefined,
+          table: comparisonTable,
+        };
       }),
     );
 
@@ -401,9 +405,8 @@ evalRouter.get('/:id/table', async (req: Request, res: Response): Promise<void> 
     returnTable = mergeComparisonTables(
       id,
       table,
-      comparisonData.filter(
-        (data): data is { evalId: string; table: typeof table } => data !== null,
-      ),
+      comparisonData.filter((data): data is NonNullable<typeof data> => data !== null),
+      eval_.description || undefined,
     );
   }
 
