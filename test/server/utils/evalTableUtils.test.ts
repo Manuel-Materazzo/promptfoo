@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import * as legacyEvalTableUtils from '../../../src/server/utils/evalTableUtils';
 import * as evalTableUtils from '../../../src/util/eval/evalTableUtils';
+import type { TablePageResult } from '../../../src/util/eval/evalTableUtils';
 
 describe('legacy evalTableUtils import', () => {
   it('re-exports the node-layer implementation for enterprise compatibility', () => {
@@ -46,5 +47,32 @@ describe('legacy evalTableUtils import', () => {
 
     expect(result.head.prompts[0].label).toBe('[eval-1] model-a');
     expect(result.head.prompts[1].label).toBe('[eval-2] model-b');
+  });
+
+  it('uses prompt.provider when prompt.label is omitted', () => {
+    const mainTable = {
+      head: {
+        prompts: [{ raw: 'p1', provider: 'openai:gpt-4o' }] as unknown as TablePageResult['head']['prompts'],
+        vars: [],
+      },
+      body: [],
+    };
+    const compTable = {
+      head: {
+        prompts: [{ raw: 'p2', provider: 'anthropic:claude-3-5-sonnet' }] as unknown as TablePageResult['head']['prompts'],
+        vars: [],
+      },
+      body: [],
+    };
+
+    const result = evalTableUtils.mergeComparisonTables(
+      'eval-1',
+      mainTable,
+      [{ evalId: 'eval-2', description: 'Comparison Eval', table: compTable }],
+      'Main Eval',
+    );
+
+    expect(result.head.prompts[0].label).toBe('[Main Eval] openai:gpt-4o');
+    expect(result.head.prompts[1].label).toBe('[Comparison Eval] anthropic:claude-3-5-sonnet');
   });
 });

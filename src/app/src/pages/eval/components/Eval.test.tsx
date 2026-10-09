@@ -1391,4 +1391,23 @@ describe('Eval', () => {
     );
     expect(new URLSearchParams(nextLocation.search).has('rowId')).toBe(false);
   });
+
+  it('resets comparison mode when mounted and unmounted', async () => {
+    const { unmount } = render(
+      <MemoryRouter initialEntries={['/eval/test-eval']}>
+        <Eval fetchId="test-eval" />
+      </MemoryRouter>,
+    );
+
+    expect(baseMockResultsViewSettings.setInComparisonMode).toHaveBeenCalledWith(false);
+    expect(baseMockResultsViewSettings.setComparisonEvalIds).toHaveBeenCalledWith([]);
+
+    baseMockResultsViewSettings.setInComparisonMode.mockClear();
+    baseMockResultsViewSettings.setComparisonEvalIds.mockClear();
+
+    unmount();
+
+    expect(baseMockResultsViewSettings.setInComparisonMode).toHaveBeenCalledWith(false);
+    expect(baseMockResultsViewSettings.setComparisonEvalIds).toHaveBeenCalledWith([]);
+  });
 });

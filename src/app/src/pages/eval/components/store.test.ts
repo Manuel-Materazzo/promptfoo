@@ -4,7 +4,7 @@ import { callApi } from '@app/utils/api';
 import { Severity } from '@promptfoo/redteam/constants';
 import { act } from '@testing-library/react';
 import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
-import { type ResultsFilter, useTableStore } from './store';
+import { type ResultsFilter, useResultsViewSettingsStore, useTableStore } from './store';
 import type {
   EvalTableDTO,
   EvaluateTable,
@@ -2617,5 +2617,21 @@ describe('useTableStore', () => {
         timers.restore({ runPending: true });
       }
     });
+  });
+});
+
+describe('useResultsViewSettingsStore', () => {
+  it('excludes inComparisonMode and comparisonEvalIds from persistence', () => {
+    act(() => {
+      useResultsViewSettingsStore.getState().setInComparisonMode(true);
+      useResultsViewSettingsStore.getState().setComparisonEvalIds(['comp-1', 'comp-2']);
+      useResultsViewSettingsStore.getState().setResultsTableZoom(1.5);
+    });
+
+    const persisted = JSON.parse(localStorage.getItem('eval-settings') || '{}');
+    expect(persisted.state).toBeDefined();
+    expect(persisted.state.inComparisonMode).toBeUndefined();
+    expect(persisted.state.comparisonEvalIds).toBeUndefined();
+    expect(persisted.state.resultsTableZoom).toBe(1.5);
   });
 });

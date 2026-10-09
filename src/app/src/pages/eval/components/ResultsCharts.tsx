@@ -31,6 +31,7 @@ export interface ResultsChartsProps {
 
 export interface ChartProps {
   table: EvaluateTable;
+  textColor?: string;
 }
 
 export interface ModelColor {
@@ -86,14 +87,24 @@ export function getPromptDisplayLabel(
   prompt: { label?: string; provider?: string },
   promptIndex: number,
   fallbackDescription?: string,
+  evalId?: string | null,
 ): string {
   let label = prompt.label || '';
 
-  // If label has [eval-xxx], replace it with [description] if description is available
+  // If label has [eval-xxx], replace it with [description] ONLY if it matches the current eval's ID
+  // or if no specific evalId was provided (for backwards compatibility with standalone / test callers).
   if (fallbackDescription) {
-    label = label.replace(/\[eval-[a-zA-Z0-9_\-.:]+\]/g, `[${fallbackDescription}]`);
-    if (/^eval-[a-zA-Z0-9_\-.:]+$/.test(label.trim())) {
-      label = fallbackDescription;
+    if (evalId) {
+      const escapedEvalId = evalId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      label = label.replace(new RegExp(`\\[${escapedEvalId}\\]`, 'g'), `[${fallbackDescription}]`);
+      if (label.trim() === evalId) {
+        label = fallbackDescription;
+      }
+    } else {
+      label = label.replace(/\[eval-[a-zA-Z0-9_\-.:]+\]/g, `[${fallbackDescription}]`);
+      if (/^eval-[a-zA-Z0-9_\-.:]+$/.test(label.trim())) {
+        label = fallbackDescription;
+      }
     }
   }
 
@@ -111,13 +122,20 @@ export function getPromptDisplayLabel(
 
 Chart.register(BarController, CategoryScale, LinearScale, BarElement, Tooltip, Legend, Colors);
 
-export function DescriptionResultsChart({ table }: ChartProps) {
+export function DescriptionResultsChart({ table, textColor }: ChartProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const chartInstance = useRef<Chart | null>(null);
   const { descriptionChartPromptView: promptView, setDescriptionChartPromptView: setPromptView } =
     useResultsViewSettingsStore();
-  const { config } = useTableStore();
+  const { config, evalId } = useTableStore();
   const mainDescription = config?.description;
+
+  const resolvedTextColor =
+    textColor ||
+    (typeof document !== 'undefined' &&
+    document.documentElement.getAttribute('data-theme') === 'dark'
+      ? '#aaa'
+      : '#666');
 
   const prompts = table.head.prompts || [];
   const rows = table.body || [];
@@ -151,7 +169,7 @@ export function DescriptionResultsChart({ table }: ChartProps) {
 
     if (prompts.length <= 1 || promptView === '0') {
       const pIdx = 0;
-      const pLabel = getPromptDisplayLabel(prompts[pIdx] || {}, pIdx, mainDescription);
+      const pLabel = getPromptDisplayLabel(prompts[pIdx] || {}, pIdx, mainDescription, evalId);
       const color = MODEL_COLORS[0];
 
       const passCounts = descriptions.map((desc) =>
@@ -233,7 +251,7 @@ export function DescriptionResultsChart({ table }: ChartProps) {
     } else if (promptView !== 'compare' && !Number.isNaN(Number(promptView))) {
       const pIdx = Number(promptView);
       const prompt = prompts[pIdx];
-      const pLabel = getPromptDisplayLabel(prompt || {}, pIdx, mainDescription);
+      const pLabel = getPromptDisplayLabel(prompt || {}, pIdx, mainDescription, evalId);
       const color = MODEL_COLORS[pIdx % MODEL_COLORS.length];
 
       const passCounts = descriptions.map((desc) =>
@@ -275,7 +293,7 @@ export function DescriptionResultsChart({ table }: ChartProps) {
     } else {
       // compare mode: each prompt gets its own stack with distinct pass & quieter fail color
       datasets = prompts.flatMap((prompt, pIdx) => {
-        const pLabel = getPromptDisplayLabel(prompt, pIdx, mainDescription);
+        const pLabel = getPromptDisplayLabel(prompt, pIdx, mainDescription, evalId);
         const color = MODEL_COLORS[pIdx % MODEL_COLORS.length];
 
         const passCounts = descriptions.map((desc) =>
@@ -335,11 +353,13 @@ export function DescriptionResultsChart({ table }: ChartProps) {
             title: {
               display: true,
               text: 'Description',
+              color: resolvedTextColor,
             },
             grid: {
               display: false,
             },
             ticks: {
+              color: resolvedTextColor,
               maxRotation: 45,
               minRotation: 0,
               autoSkip: false,
@@ -358,8 +378,10 @@ export function DescriptionResultsChart({ table }: ChartProps) {
             title: {
               display: true,
               text: 'Number of Tests',
+              color: resolvedTextColor,
             },
             ticks: {
+              color: resolvedTextColor,
               stepSize: 1,
               precision: 0,
             },
@@ -370,7 +392,12 @@ export function DescriptionResultsChart({ table }: ChartProps) {
             display: true,
             position: 'top' as const,
             labels: {
+              color: resolvedTextColor,
               generateLabels(chart: Chart) {
+                const color =
+                  (chart.options.plugins?.legend?.labels?.color as string) ||
+                  Chart.defaults.color ||
+                  resolvedTextColor;
                 return chart.data.datasets.map((dataset, idx) => ({
                   text: dataset.label || '',
                   fillStyle: dataset.backgroundColor as string,
@@ -379,6 +406,7 @@ export function DescriptionResultsChart({ table }: ChartProps) {
                   lineWidth: dataset.borderWidth ? Number(dataset.borderWidth) : 0,
                   hidden: !chart.isDatasetVisible(idx),
                   datasetIndex: idx,
+                  fontColor: color,
                 }));
               },
             },
@@ -407,7 +435,7 @@ export function DescriptionResultsChart({ table }: ChartProps) {
         chartInstance.current = null;
       }
     };
-  }, [descriptions, mainDescription, promptView, prompts, rows]);
+  }, [descriptions, evalId, mainDescription, promptView, prompts, resolvedTextColor, rows]);
 
   if (rows.length === 0) {
     return (
@@ -436,7 +464,7 @@ export function DescriptionResultsChart({ table }: ChartProps) {
               <SelectItem value="combined">All models (combined)</SelectItem>
               {prompts.map((prompt, idx) => (
                 <SelectItem key={idx} value={String(idx)}>
-                  {getPromptDisplayLabel(prompt, idx, mainDescription)}
+                  {getPromptDisplayLabel(prompt, idx, mainDescription, evalId)}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -450,7 +478,7 @@ export function DescriptionResultsChart({ table }: ChartProps) {
   );
 }
 
-export function MetricChart({ table }: ChartProps) {
+export function MetricChart({ table, textColor }: ChartProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const chartInstance = useRef<Chart | null>(null);
 
@@ -460,8 +488,15 @@ export function MetricChart({ table }: ChartProps) {
     metricChartHiddenMetrics,
     setMetricChartHiddenMetrics,
   } = useResultsViewSettingsStore();
-  const { config } = useTableStore();
+  const { config, evalId } = useTableStore();
   const mainDescription = config?.description;
+
+  const resolvedTextColor =
+    textColor ||
+    (typeof document !== 'undefined' &&
+    document.documentElement.getAttribute('data-theme') === 'dark'
+      ? '#aaa'
+      : '#666');
 
   const prompts = table.head.prompts || [];
 
@@ -504,7 +539,7 @@ export function MetricChart({ table }: ChartProps) {
     }
 
     const datasets = prompts.map((prompt, promptIdx) => {
-      const pLabel = getPromptDisplayLabel(prompt, promptIdx, mainDescription);
+      const pLabel = getPromptDisplayLabel(prompt, promptIdx, mainDescription, evalId);
       const color = MODEL_COLORS[promptIdx % MODEL_COLORS.length];
       const data = activeMetricKeys.map((key) => {
         const val = prompt.metrics?.namedScores?.[key];
@@ -538,6 +573,10 @@ export function MetricChart({ table }: ChartProps) {
             title: {
               display: true,
               text: 'Metric',
+              color: resolvedTextColor,
+            },
+            ticks: {
+              color: resolvedTextColor,
             },
           },
           y: {
@@ -546,8 +585,10 @@ export function MetricChart({ table }: ChartProps) {
             title: {
               display: true,
               text: 'Score',
+              color: resolvedTextColor,
             },
             ticks: {
+              color: resolvedTextColor,
               callback(value: string | number) {
                 if (typeof value === 'number') {
                   return Number.isInteger(value) ? value : Number(value.toFixed(2));
@@ -561,6 +602,9 @@ export function MetricChart({ table }: ChartProps) {
           legend: {
             display: true,
             position: 'top' as const,
+            labels: {
+              color: resolvedTextColor,
+            },
           },
           tooltip: {
             callbacks: {
@@ -586,7 +630,7 @@ export function MetricChart({ table }: ChartProps) {
         chartInstance.current = null;
       }
     };
-  }, [activeMetricKeys, isStacked, mainDescription, prompts]);
+  }, [activeMetricKeys, evalId, isStacked, mainDescription, prompts, resolvedTextColor]);
 
   if (allMetricKeys.length === 0) {
     return (
@@ -688,10 +732,37 @@ export function MetricChart({ table }: ChartProps) {
 }
 
 function ResultsCharts({ scores: _scores }: ResultsChartsProps) {
+  const [isDark, setIsDark] = React.useState(
+    () =>
+      typeof document !== 'undefined' &&
+      document.documentElement.getAttribute('data-theme') === 'dark',
+  );
+
   useLayoutEffect(() => {
-    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-    Chart.defaults.color = isDark ? '#aaa' : '#666';
+    if (typeof document === 'undefined') {
+      return;
+    }
+    const updateTheme = () => {
+      const dark = document.documentElement.getAttribute('data-theme') === 'dark';
+      setIsDark(dark);
+      Chart.defaults.color = dark ? '#aaa' : '#666';
+    };
+    updateTheme();
+    const observer = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        if (mutation.type === 'attributes' && mutation.attributeName === 'data-theme') {
+          updateTheme();
+        }
+      }
+    });
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme'],
+    });
+    return () => observer.disconnect();
   }, []);
+
+  const textColor = isDark ? '#aaa' : '#666';
 
   const { table } = useTableStore();
 
@@ -707,10 +778,10 @@ function ResultsCharts({ scores: _scores }: ResultsChartsProps) {
       >
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 w-full">
           <div className="flex flex-col min-h-[360px] p-4 bg-background/50 rounded-lg border border-border">
-            <DescriptionResultsChart table={table} />
+            <DescriptionResultsChart table={table} textColor={textColor} />
           </div>
           <div className="flex flex-col min-h-[360px] p-4 bg-background/50 rounded-lg border border-border">
-            <MetricChart table={table} />
+            <MetricChart table={table} textColor={textColor} />
           </div>
         </div>
       </div>

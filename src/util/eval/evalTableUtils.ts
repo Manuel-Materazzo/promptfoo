@@ -626,6 +626,30 @@ export function getEvalTablePromptStrippedPayload(
  * @param comparisonData - Array of comparison eval data (eval ID and table)
  * @returns Merged table with all prompts and outputs combined
  */
+function getPromptBaseLabel(prompt: { label?: string; provider?: unknown }): string {
+  if (prompt.label) {
+    return prompt.label;
+  }
+  if (typeof prompt.provider === 'string') {
+    return prompt.provider;
+  }
+  if (prompt.provider && typeof prompt.provider === 'object' && 'id' in prompt.provider) {
+    return String((prompt.provider as { id?: unknown }).id || '');
+  }
+  return '';
+}
+
+function prefixPromptLabel(prefix: string, prompt: { label?: string; provider?: unknown }): string {
+  const inner = getPromptBaseLabel(prompt);
+  if (!inner) {
+    return `[${prefix}]`;
+  }
+  if (inner.startsWith(`[${prefix}]`)) {
+    return inner;
+  }
+  return `[${prefix}] ${inner}`;
+}
+
 export function mergeComparisonTables(
   mainEvalId: string,
   mainTable: TablePageResult,
@@ -639,14 +663,14 @@ export function mergeComparisonTables(
         // Main eval prompts with eval description or ID prefix
         ...mainTable.head.prompts.map((prompt) => ({
           ...prompt,
-          label: prompt.label ? `[${mainPrefix}] ${prompt.label}` : `[${mainPrefix}]`,
+          label: prefixPromptLabel(mainPrefix, prompt),
         })),
         // Comparison eval prompts with their eval description or ID prefixes
         ...comparisonData.flatMap(({ evalId, table, description }) => {
           const compPrefix = description || evalId;
           return table.head.prompts.map((prompt) => ({
             ...prompt,
-            label: prompt.label ? `[${compPrefix}] ${prompt.label}` : `[${compPrefix}]`,
+            label: prefixPromptLabel(compPrefix, prompt),
           }));
         }),
       ],

@@ -528,8 +528,15 @@ export const useResultsViewSettingsStore = create<SettingsState>()(
     {
       name: 'eval-settings',
       version: 3,
+      partialize: (state) => {
+        // Exclude transient comparison mode state from persistence
+        const { inComparisonMode, comparisonEvalIds, ...rest } = state;
+        return rest;
+      },
       migrate: (persistedState, version) => {
         const state = persistedState as Record<string, unknown>;
+        delete state.inComparisonMode;
+        delete state.comparisonEvalIds;
         if (version < 2) {
           // Remove old global hiddenVarNames, initialize new schema-based storage
           delete state.hiddenVarNames;

@@ -159,7 +159,9 @@ export default function Eval({ fetchId }: EvalOptions) {
     setEvalId('');
     setAuthor(null);
     setLoaded(true);
-  }, [setAuthor, setConfig, setEvalId, setTable]);
+    setInComparisonMode(false);
+    setComparisonEvalIds([]);
+  }, [setAuthor, setConfig, setEvalId, setTable, setInComparisonMode, setComparisonEvalIds]);
 
   /**
    * Populates the table store from a websocket signal. Explicit /eval/:id routes stay
@@ -264,6 +266,8 @@ export default function Eval({ fetchId }: EvalOptions) {
    */
   const handleRecentEvalSelection = useCallback(
     (id: string) => {
+      setInComparisonMode(false);
+      setComparisonEvalIds([]);
       // A selected eval has a different result set, so row-scoped deep links from the
       // previous eval must not carry into the destination URL.
       navigate(
@@ -275,7 +279,7 @@ export default function Eval({ fetchId }: EvalOptions) {
         ),
       );
     },
-    [location.search, navigate],
+    [location.search, navigate, setInComparisonMode, setComparisonEvalIds],
   );
 
   const replaceSearchParams = useCallback(
@@ -371,6 +375,10 @@ export default function Eval({ fetchId }: EvalOptions) {
       return;
     }
 
+    logger.debug('[Eval] Resetting comparison mode', {});
+    setInComparisonMode(false);
+    setComparisonEvalIds([]);
+
     if (fetchId) {
       logger.debug('[Eval] Fetching eval by id', { fetchId });
       const run = async () => {
@@ -402,9 +410,6 @@ export default function Eval({ fetchId }: EvalOptions) {
       };
       run();
     }
-    logger.debug('[Eval] Resetting comparison mode', {});
-    setInComparisonMode(false);
-    setComparisonEvalIds([]);
   }, [
     apiBaseUrl,
     clearEvalState,
@@ -415,6 +420,14 @@ export default function Eval({ fetchId }: EvalOptions) {
     setComparisonEvalIds,
     // Note: resetFilters and addFilter are accessed via getState() to avoid dependency issues
   ]);
+
+  // Clean up comparison mode when component unmounts
+  useEffect(() => {
+    return () => {
+      setInComparisonMode(false);
+      setComparisonEvalIds([]);
+    };
+  }, [setInComparisonMode, setComparisonEvalIds]);
 
   // The websocket only needs to be rebuilt when its connection target (apiBaseUrl) changes.
   // The message handler is read from handleResultsFileRef, so filterMode / fetchId / eval

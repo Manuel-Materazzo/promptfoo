@@ -93,6 +93,17 @@ describe('ResultsCharts', () => {
       const label = getPromptDisplayLabel(prompt, 0);
       expect(label).toBe('claude-3-5-sonnet');
     });
+
+    it('does not replace comparison eval ID when evalId is provided for main eval', () => {
+      const mainPrompt = { label: '[eval-main-123] gpt-4' };
+      const compPrompt = { label: '[eval-comp-456] claude-3' };
+      expect(getPromptDisplayLabel(mainPrompt, 0, 'Production Model', 'eval-main-123')).toBe(
+        '[Production Model] gpt-4',
+      );
+      expect(getPromptDisplayLabel(compPrompt, 1, 'Production Model', 'eval-main-123')).toBe(
+        '[eval-comp-456] claude-3',
+      );
+    });
   });
 
   describe('DescriptionResultsChart', () => {
@@ -239,6 +250,67 @@ describe('ResultsCharts', () => {
 
       render(<DescriptionResultsChart table={mockTable} />);
       expect(screen.getByText('No test cases found')).toBeInTheDocument();
+    });
+
+    it('sets readable fontColor on legend labels instead of black', () => {
+      const mockTable: any = {
+        head: {
+          prompts: [{ provider: 'test-model', metrics: { namedScores: {} } }],
+          vars: [],
+        },
+        body: [{ description: 'test', outputs: [{ score: 1, pass: true }] }],
+      };
+
+      render(<DescriptionResultsChart table={mockTable} textColor="#aaa" />);
+
+      const chartConfig = vi.mocked(Chart).mock.calls[0][1] as any;
+      const legendLabels = chartConfig.options.plugins.legend.labels;
+      expect(legendLabels.color).toBe('#aaa');
+
+      const mockChartInstance = {
+        data: chartConfig.data,
+        isDatasetVisible: () => true,
+        options: chartConfig.options,
+      };
+      const generated = legendLabels.generateLabels(mockChartInstance);
+      expect(generated[0].fontColor).toBe('#aaa');
+      expect(generated[1].fontColor).toBe('#aaa');
+    });
+
+    it('maintains distinct model labels when comparing evals', () => {
+      const mockTable: any = {
+        head: {
+          prompts: [
+            { label: '[eval-main] gpt-4o', provider: 'gpt-4o' },
+            { label: '[eval-comp] claude-3-5-sonnet', provider: 'claude-3-5-sonnet' },
+          ],
+          vars: [],
+        },
+        body: [
+          {
+            description: 'test-1',
+            outputs: [
+              { score: 1, pass: true },
+              { score: 1, pass: true },
+            ],
+          },
+        ],
+      };
+
+      vi.mocked(useTableStore).mockReturnValue({
+        table: mockTable,
+        evalId: 'eval-main',
+        config: { description: 'GPT-4o Benchmark' },
+        setTable: vi.fn(),
+        fetchEvalData: vi.fn(),
+      } as any);
+
+      render(<DescriptionResultsChart table={mockTable} />);
+
+      const chartConfig = vi.mocked(Chart).mock.calls[0][1] as any;
+      const datasets = chartConfig.data.datasets;
+      expect(datasets[0].label).toBe('[GPT-4o Benchmark] gpt-4o (Pass)');
+      expect(datasets[2].label).toBe('[eval-comp] claude-3-5-sonnet (Pass)');
     });
   });
 
