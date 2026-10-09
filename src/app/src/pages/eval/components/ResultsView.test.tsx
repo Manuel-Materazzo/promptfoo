@@ -1205,7 +1205,9 @@ describe('ResultsView Chart Rendering', () => {
       setFilterMode: vi.fn(),
     });
   });
-  it('shows an unavailable reason on demand if there is only one prompt', async () => {
+  it('renders charts when there is only one prompt', async () => {
+    vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(1100);
+
     vi.mocked(useTableStore).mockReturnValue({
       author: 'Test Author',
       table: {
@@ -1249,7 +1251,48 @@ describe('ResultsView Chart Rendering', () => {
       />,
     );
 
-    await expectChartsUnavailable('Charts require at least two prompts to compare side by side.');
+    expect(screen.getByTestId('results-charts')).toBeInTheDocument();
+  });
+
+  it('shows an unavailable reason on demand if there are no prompts', async () => {
+    vi.mocked(useTableStore).mockReturnValue({
+      author: 'Test Author',
+      table: {
+        head: {
+          prompts: [],
+          vars: ['input'],
+        },
+        body: [{ outputs: [{ score: 0.8 }] }],
+      },
+      config: {
+        description: 'Test Evaluation',
+        sharing: true,
+        tags: { env: 'test' },
+      },
+      setConfig: vi.fn(),
+      evalId: 'test-eval-id',
+      setAuthor: vi.fn(),
+      filteredResultsCount: 10,
+      totalResultsCount: 15,
+      highlightedResultsCount: 2,
+      filters: {
+        appliedCount: 0,
+        values: {},
+      },
+      removeFilter: vi.fn(),
+      filterMode: 'all',
+      setFilterMode: vi.fn(),
+    });
+
+    renderWithRouter(
+      <ResultsView
+        recentEvals={mockRecentEvals}
+        onRecentEvalSelected={mockOnRecentEvalSelected}
+        defaultEvalId="test-eval-id"
+      />,
+    );
+
+    await expectChartsUnavailable('Charts require at least one prompt to display results.');
   });
 
   it('shows an unavailable reason on demand if all scores are binary edge values (all 1s)', async () => {
@@ -1427,13 +1470,7 @@ describe('ResultsView Chart Rendering', () => {
       author: 'Test Author',
       table: {
         head: {
-          prompts: [
-            {
-              label: 'Initial Prompt',
-              provider: 'openai:gpt-4',
-              raw: 'Initial prompt',
-            },
-          ],
+          prompts: [],
           vars: ['input'],
         },
         body: [{ outputs: [{ score: 0.8 }] }],
@@ -1595,13 +1632,7 @@ describe('ResultsView Chart Rendering', () => {
       ...tableStoreValue,
       table: {
         head: {
-          prompts: [
-            {
-              label: 'Only Prompt',
-              provider: 'openai:gpt-4',
-              raw: 'Only Prompt',
-            },
-          ],
+          prompts: [],
           vars: ['input'],
         },
         body: [{ outputs: [{ score: 0.8 }] }],

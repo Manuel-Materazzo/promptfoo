@@ -767,8 +767,8 @@ export default function ResultsView({
       reasons.push('This evaluation is still loading its chart configuration.');
     }
 
-    if (table.head.prompts.length <= 1) {
-      reasons.push('Charts require at least two prompts to compare side by side.');
+    if (table.head.prompts.length === 0) {
+      reasons.push('Charts require at least one prompt to display results.');
     }
 
     if (resultsChartsScores.length === 0) {
