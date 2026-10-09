@@ -62,7 +62,13 @@ RUN ln -s /app /app/node_modules/promptfoo && \
     chown -h promptfoo:promptfoo /app/node_modules/promptfoo && \
     ln -s /app/dist/src/entrypoint.js /usr/local/bin/promptfoo && \
     ln -s /app/dist/src/entrypoint.js /usr/local/bin/pf && \
-    mkdir -p /home/promptfoo/.promptfoo && chown promptfoo:promptfoo /home/promptfoo/.promptfoo
+    mkdir -p /home/promptfoo/.promptfoo /home/promptfoo/.local /home/promptfoo/.cache /app/custom && \
+    chown -R promptfoo:promptfoo /home/promptfoo /app/custom
+
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN sed -i 's/\r$//' /usr/local/bin/docker-entrypoint.sh && \
+    chmod +x /usr/local/bin/docker-entrypoint.sh && \
+    ln -s /usr/local/bin/docker-entrypoint.sh /app/docker-entrypoint.sh
 
 ENV API_PORT=3000
 ENV HOST=0.0.0.0
@@ -70,6 +76,8 @@ ENV PROMPTFOO_SELF_HOSTED=1
 ENV PROMPTFOO_RUNNING_IN_DOCKER=1
 ARG PROMPTFOO_OFFICIAL_DOCKER_IMAGE=0
 ENV PROMPTFOO_OFFICIAL_DOCKER_IMAGE=${PROMPTFOO_OFFICIAL_DOCKER_IMAGE}
+ENV PATH="/home/promptfoo/.local/bin:${PATH}"
+ENV PYTHONPATH="/app/custom:${PYTHONPATH}"
 
 USER promptfoo
 
@@ -78,4 +86,7 @@ EXPOSE 3000
 # Set up healthcheck using Node, which is present in every stage.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s CMD node -e "const http = require('node:http'); const req = http.get('http://127.0.0.1:3000/health', (res) => process.exit(res.statusCode >= 200 && res.statusCode < 400 ? 0 : 1)); req.on('error', () => process.exit(1)); req.setTimeout(5000, () => { req.destroy(); process.exit(1); });"
 
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
+
 CMD ["node", "dist/src/server/index.js"]
+

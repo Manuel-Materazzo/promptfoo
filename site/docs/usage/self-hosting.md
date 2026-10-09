@@ -391,6 +391,23 @@ docker run -d --name promptfoo_container -p 3000:3000 \
   ghcr.io/promptfoo/promptfoo:latest
 ```
 
+### Custom Python Assertions & Dependencies
+
+When using custom Python assertions or transforms, map a directory on your host to `/app/custom` inside the container:
+
+```bash
+docker run -d \
+  --name promptfoo_container \
+  -p 3000:3000 \
+  -v ./custom:/app/custom \
+  -v ./promptfoo_data:/home/promptfoo/.promptfoo \
+  ghcr.io/promptfoo/promptfoo:latest
+```
+
+If your custom Python scripts require packages not bundled in the base container, place a `requirements.txt` file inside your custom folder (`/app/custom/requirements.txt`). On container startup or recreation, Promptfoo automatically installs these dependencies (`pip install -r /app/custom/requirements.txt --break-system-packages`).
+
+You can override the path to the requirements file by setting the `PROMPTFOO_PYTHON_REQUIREMENTS` environment variable.
+
 ### Provider Customization
 
 Customize which LLM providers appear in the eval creator UI for cost control, compliance, or routing through internal gateways.

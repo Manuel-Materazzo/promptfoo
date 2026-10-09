@@ -22,6 +22,19 @@
 
 > Promptfoo is now part of OpenAI. Promptfoo remains open source and MIT licensed. Read the [company update](https://www.promptfoo.dev/blog/promptfoo-joining-openai/).
 
+## Custom Features & Improvements
+
+This fork includes several enhancements for containerized workflows, eval visualization, and interactive evaluation management:
+
+- **Automatic Custom Python Dependencies in Docker:** Automatically installs dependencies from `/app/custom/requirements.txt` or a configurable `PROMPTFOO_PYTHON_REQUIREMENTS` via `pip install -r /app/custom/requirements.txt --break-system-packages` on container startup.
+- **Interactive Test Case & Row Rerun in Web Dashboard:**
+  - Added one-click rerun buttons directly to evaluation output cells and the test details slide-over dialog.
+  - Persists updated outputs to the database (`EvalResult`), recalculates evaluation metrics (pass rates, token usage, latency, cost), and updates the dashboard table and metrics in real time with toast feedback.
+- **Enhanced Evaluation Charts & Visualizations:**
+  - Added support for single-eval and multi-model results charts directly in the web dashboard.
+  - Stacked pass/fail comparisons grouped by test description and absolute metric comparison charts with interactive show/hide toggles.
+  - Persisted chart settings.
+
 ## Quick Start
 
 ```sh
