@@ -1470,7 +1470,7 @@ describe('ResultsView Chart Rendering', () => {
       author: 'Test Author',
       table: {
         head: {
-          prompts: [],
+          prompts: [] as any[],
           vars: ['input'],
         },
         body: [{ outputs: [{ score: 0.8 }] }],
